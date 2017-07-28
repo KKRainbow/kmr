@@ -1,7 +1,7 @@
 package mapred
 
 type combinedMapper struct {
-	MapperBase
+	MapperCommon
 	FirstMapper  Mapper
 	SecondMapper Mapper
 }

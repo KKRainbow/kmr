@@ -11,4 +11,6 @@ type WorkerCtlBase struct {
 	InspectWorkers(workernums ...int) map[int]string
 }
 
-func ()
+func (wcb *WorkerCtlBase) InspectWorkers(workernums ...int) map[int]string {
+
+}
