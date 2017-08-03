@@ -1,16 +1,15 @@
-package kmr
+package master
 
 type WorkerCtl interface {
 	InspectWorker(workernum int) string
-	StartWorkers(num int)
+	StartWorkers(num int) error
 	StopWorkers()
 	GetWorkerNum() int
 }
 
 type WorkerCtlBase struct {
-	InspectWorkers(workernums ...int) map[int]string
 }
 
 func (wcb *WorkerCtlBase) InspectWorkers(workernums ...int) map[int]string {
-
+	return nil
 }

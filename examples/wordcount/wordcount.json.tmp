@@ -8,32 +8,16 @@
   "interBucket": {
     "bucketType": "filesystem",
     "config": {
-      "directory": "/tmp/"
+      "directory": "/tmp/wc/"
     }
   },
   "reduceBucket": {
     "bucketType": "filesystem",
     "config": {
-      "directory": "/tmp/"
+      "directory": "/tmp/wc/"
     }
   },
-  "workerDesc": {
-    "volumeMounts": [
-      {
-        "name": "cephfs",
-        "mountPath": "/cephfs"
-      }
-    ],
-    "volumes": [
-      {
-        "name": "cephhfs",
-        "hostPath": {
-          "path": "/mnt/cephfs"
-        }
-      }
-    ]
-  },
-  "nWorker": 2,
+  "nWorker": 1,
   "image": "kmr",
   "command": [
     "go",

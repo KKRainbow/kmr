@@ -1,0 +1,37 @@
+{
+  "mapBucket": {
+    "bucketType": "filesystem",
+    "config": {
+      "directory": "/home/sunsijie/"
+    }
+  },
+  "interBucket": {
+    "bucketType": "filesystem",
+    "config": {
+      "directory": "/tmp/countpattern/"
+    }
+  },
+  "reduceBucket": {
+    "bucketType": "filesystem",
+    "config": {
+      "directory": "/tmp/countpattern/"
+    }
+  },
+  "nWorker": 1,
+  "map": {
+    "objects": [
+        "test.l"
+    ],
+    "readerType": "stream"
+  },
+  "reduce": {
+    "nReduce": 1
+  },
+  "image": "r.fds.so:5000/kmr-jobs:jenkins-kmr-jobs-29",
+  "command": [
+    "go",
+    "run",
+    "/go/src/github.com/naturali/kmr-jobs/foodcontext/count_pattern/count_pattern.go"
+  ],
+  "cpulimit": "1"
+}

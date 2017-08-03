@@ -142,6 +142,7 @@ func Fatal(v ...interface{}) {
 		fs := filePath(l.errorL)
 		l.fatalL.Println(append([]interface{}{fs}, v...)...)
 	}
+	panic(v)
 	os.Exit(1)
 }
 
@@ -162,6 +163,7 @@ func Fatalf(format string, v ...interface{}) {
 	} else {
 		l.fatalL.Printf(format, v...)
 	}
+	panic(v)
 	os.Exit(1)
 }
 

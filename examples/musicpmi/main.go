@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/naturali/kmr/executor"
 	"github.com/naturali/kmr/mapred"
 	"github.com/naturali/kmr/pkg/aca"
+	"github.com/naturali/kmr/scheduler"
 )
 
 var musicMatcher, artistMatcher *aca.AhoCorasickMatcher
 var musicArtistMap = make(map[string][]string)
+var job = scheduler.JobGraph{}
 
 func Init() {
 	musicMatcher = aca.NewAhoCorasickMatcher()
@@ -139,6 +140,10 @@ func CountPairMap(key interface{}, value interface{}, output func(k, v interface
 	}
 }
 
+func CountAllMap(key interface{}, value interface{}, output func(k, v interface{}), reporter interface{}) {
+	output("All", 1)
+}
+
 func AggregateReducer(key interface{}, valuesNext mapred.ValueIterator, output func(v interface{}), reporter interface{}) {
 	var counter uint32
 	mapred.ForEachValue(valuesNext, func(v interface{}) {
@@ -147,6 +152,33 @@ func AggregateReducer(key interface{}, valuesNext mapred.ValueIterator, output f
 	output(counter)
 }
 
+func PMIMapper(key interface{}, value interface{}, output func(k, v interface{}), reporter interface{}) {
+}
+
 func PMIReducer(key interface{}, valuesNext mapred.ValueIterator, output func(v interface{}), reporter interface{}) {
-	countMusicOutputs := 
+	cmm := job.GetOutputOf("CMM")
+}
+
+func main() {
+	job.Name = "ABC"
+	countMusicMapper := mapred.GetFunctionMapper(CountMusicMap, mapred.String, mapred.Bytes, mapred.String, mapred.Uint32, func() {})
+	countArtistMapper := mapred.GetFunctionMapper(CountArtistMap, mapred.String, mapred.Bytes, mapred.String, mapred.Uint32, func() {})
+	countPairMapper := mapred.GetFunctionMapper(CountPairMap, mapred.String, mapred.Bytes, mapred.String, mapred.Uint32, func() {})
+	countAllMapper := mapred.GetFunctionMapper(CountAllMap, mapred.String, mapred.Bytes, mapred.String, mapred.Uint32, func() {})
+	pmiMapper := mapred.GetFunctionMapper(PMIMapper, mapred.String, mapred.Bytes, mapred.String, mapred.Bytes, func() {})
+
+	aggregateReducer := mapred.GetFunctionReducer(AggregateReducer, mapred.Bytes, mapred.Uint32, mapred.Bytes, mapred.Uint32, func() {})
+	pmiReducer := mapred.GetFunctionMapper(PMIReducer, mapred.String, mapred.Bytes, mapred.String, mapred.String, func() {})
+
+	inputSentencesFiles := make([]string, 10)
+	inputMusicListFiles := make([]string, 10)
+
+	cmj := job.AddMapper(countMusicMapper, inputSentencesFiles).AddReducer(aggregateReducer, 10).SetName("CM")
+	caj := job.AddMapper(countArtistMapper, inputSentencesFiles).AddReducer(aggregateReducer, 10).SetName("CA")
+	cpj := job.AddMapper(countPairMapper, inputSentencesFiles).AddReducer(aggregateReducer, 10).SetName("CP")
+	callj := job.AddMapper(CountAllMap, inputSentencesFiles).AddReducer(aggregateReducer, 10).SetName("CALL")
+
+	pmij := job.AddMapper(PMIMapper, inputMusicListFiles).AddReducer(PMIReducer, 10).DenpendOn(cmj, caj, cpj, caj).SetName("")
+
+	job.Run()
 }
