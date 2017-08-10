@@ -37,6 +37,9 @@ const (
 
 	ResultOK
 	ResultFailed
+
+	mapPhase = "map"
+	reducePhase = "reduce"
 )
 
 var NoAvailableJobError = errors.New("No available job")
