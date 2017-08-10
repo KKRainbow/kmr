@@ -104,6 +104,7 @@ type server struct {
 func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*kmrpb.Task, error) {
 	t, err := s.master.requestTaskFunc()
 	s.master.heartbeat[in.WorkerID] = make(chan int, 10)
+	s.master.workerTaskMap[in.WorkerID] = t
 	go s.master.CheckHeartbeatForEachWorker(in.WorkerID, s.master.heartbeat[in.WorkerID])
 	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v", t.JobNodeName, t.MapReduceNodeIndex, t.Phase)
 	return &kmrpb.Task{
