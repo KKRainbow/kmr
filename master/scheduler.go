@@ -257,18 +257,6 @@ func (s *Scheduler) MapReduceNodeSchedule(visitorFunc MapReduceJobVisitFunction,
 			wait := visitorFunc(*jobDesc)
 			result := <-wait
 			if result == ResultOK {
-				/*
-					for x := 0; x < startNode.reducerCount; x++ {
-						for _, file := range startNode.interFiles.getReducerInputFiles(x) {
-							j.reduceBucket.Delete(file)
-						}
-					}
-					if startNode.chainPrev != nil {
-						for _, file := range startNode.chainPrev.outputFiles.GetFiles() {
-							j.reduceBucket.Delete(file)
-						}
-					}
-				*/
 				err := visitor.MapReduceNodeSucceed(mrNode)
 				if err == nil {
 					idx++
