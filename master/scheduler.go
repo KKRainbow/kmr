@@ -7,7 +7,6 @@ import (
 
 	"github.com/naturali/kmr/jobgraph"
 	"github.com/naturali/kmr/util/log"
-	"github.com/naturali/kmr-new/master"
 )
 
 type TaskDescription struct {
@@ -46,10 +45,7 @@ var NoAvailableJobError = errors.New("No available job")
 // every MapReduce node can be divided into (nMappers*nReducer) tasks.
 // executor request a task to execute.
 type Scheduler struct {
-	taskDescID            int
 	jobGraph              *jobgraph.Job
-	jobStatus             map[int]int
-	availableMapReduceJob []*mapReduceJob
 }
 
 type task struct {
@@ -112,6 +108,7 @@ func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, 
 	jobResultChanMap := make(map[*mapReduceJob]<-chan int)
 	availableJobs := make([]*mapReduceJob, 0)
 	availableJobsLock := sync.Mutex{}
+	taskDescID := 0
 	/*
 		type ReportFunction func(task TaskDescription, state int)
 		type MapReduceJobVisitFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
@@ -159,9 +156,9 @@ func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, 
 				}
 				if taskStateMap[task] == StateIdle {
 					taskStateMap[task] = StateInProgress
-					s.taskDescID++
+					taskDescID++
 					return TaskDescription{
-						ID:                 s.taskDescID,
+						ID:                 taskDescID,
 						JobNodeName:        processingJob.jobDesc.JobNodeName,
 						MapReduceNodeIndex: processingJob.jobDesc.MapReduceNodeIndex,
 						Phase:              phaseMap[processingJob],
