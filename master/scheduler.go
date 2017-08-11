@@ -140,8 +140,11 @@ func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, 
 	phaseMap := make(map[*mapReduceJob]string)
 	taskStateMap := make(map[*task]int)
 	taskIDMap := make(map[int]*task)
+	mapsLock := sync.Mutex{}
 
 	requestFunc = func() (TaskDescription, error) {
+		mapsLock.Lock()
+		defer mapsLock.Unlock()
 		for _, processingJob := range availableJobs {
 			var tasks *[]*task
 			if mapperFinishedMap[processingJob] == len(processingJob.mapTasks) {
@@ -174,8 +177,11 @@ func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, 
 	}
 
 	reportFunc = func(desc TaskDescription, result int) {
+		mapsLock.Lock()
+		defer mapsLock.Unlock()
 		var t *task
-		if t, ok := taskIDMap[desc.ID]; !ok || t == nil {
+		var ok bool
+		if t, ok = taskIDMap[desc.ID]; !ok || t == nil {
 			log.Error("Report a task doesn't exists")
 			return
 		}
@@ -223,25 +229,19 @@ func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, 
 func (s *Scheduler) MapReduceNodeSchedule(visitorFunc MapReduceJobVisitFunction, visitor TaskVisitor) {
 
 	waitForAll := &sync.WaitGroup{}
-	jobNodeLockMap := make(map[*jobgraph.JobNode]sync.Mutex)
 	jobStatusMap := make(map[*jobgraph.JobNode]int)
+	mapsLock := sync.Mutex{}
 	changeJobNodeStatus := func(j *jobgraph.JobNode, status int) {
-		if _, ok := jobNodeLockMap[j]; !ok {
-			jobNodeLockMap[j] = sync.Mutex{}
-		}
-		jobNodeLockMap[j].Lock()
-		defer jobNodeLockMap[j].Unlock()
+		mapsLock.Lock()
+		defer mapsLock.Unlock()
 		jobStatusMap[j] = status
 	}
 	statusEqualTo := func(j *jobgraph.JobNode, status int) bool {
-		if _, ok := jobNodeLockMap[j]; !ok {
-			jobNodeLockMap[j] = sync.Mutex{}
-		}
+		mapsLock.Lock()
+		defer mapsLock.Unlock()
 		if _, ok := jobStatusMap[j]; !ok {
 			jobStatusMap[j] = StateIdle
 		}
-		jobNodeLockMap[j].Lock()
-		defer jobNodeLockMap[j].Unlock()
 		return jobStatusMap[j] == status
 	}
 	// topo sort and push job to master
