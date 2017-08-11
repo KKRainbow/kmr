@@ -1,0 +1,327 @@
+package cli
+
+import (
+	"fmt"
+	"github.com/naturali/kmr/config"
+	"github.com/naturali/kmr/jobgraph"
+	"github.com/urfave/cli"
+	"io/ioutil"
+	"k8s.io/client-go/rest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+	"github.com/naturali/kmr/worker"
+	"path"
+	"github.com/naturali/kmr/util/log"
+	"encoding/json"
+	"errors"
+	"github.com/naturali/kmr/util"
+	"math/rand"
+	"github.com/naturali/kmr/bucket"
+)
+
+func Run(job *jobgraph.Job) {
+	if len(job.GetName()) == 0 {
+		job.SetName("anonymous-kmr-job")
+	}
+
+	var err error
+
+	repMap := map[string]string{
+		"JOBNAME": job.GetName(),
+	}
+	var conf *config.KMRConfig
+
+	var mapBucket, interBucket, reduceBucket bucket.Bucket
+
+	app := cli.NewApp()
+	app.Name = job.GetName()
+	app.Description = "A KMR application named " + job.GetName()
+	app.Author = "Naturali"
+	app.Version = "0.0.1"
+	app.Flags = []cli.Flag{
+		cli.StringSliceFlag{
+			Name:  "config",
+			Usage: "Load config from `FILES`",
+		},
+		cli.Int64Flag{
+			Name:   "random-seed",
+			Value:  time.Now().UnixNano(),
+			Usage:  "Used to synchronize information between workers and master",
+			Hidden: true,
+		},
+	}
+	app.Before = func(c *cli.Context) error {
+		conf = config.LoadConfigFromMultiFiles(repMap, append(config.GetConfigLoadOrder(), c.StringSlice("config")...)...)
+		job.ValidateGraph()
+		return nil
+	}
+
+	app.Commands = []cli.Command{
+		{
+			Name: "master",
+			Flags: []cli.Flag{
+				cli.BoolFlag{
+					Name:  "remote",
+					Usage: "Run on kubernetes",
+				},
+				cli.IntFlag{
+					Name:  "port",
+					Value: 50051,
+					Usage: "Define how many workers",
+				},
+				cli.IntFlag{
+					Name:  "worker-num",
+					Value: 1,
+					Usage: "Define how many workers",
+				},
+				cli.BoolFlag{
+					Name:  "listen-only",
+					Usage: "Listen and waiting for workers",
+				},
+				cli.IntFlag{
+					Name:  "cpu-limit",
+					Value: 1,
+					Usage: "Define worker cpu limit when run in k8s",
+				},
+				cli.StringFlag{
+					Name:   "image-name",
+					Usage:  "Worker docker image name used in remote mode",
+					Hidden: true,
+				},
+				cli.StringFlag{
+					Name:   "service-name",
+					Usage:  "k8s service name used in remote mode",
+					Hidden: true,
+				},
+			},
+			Action: func(ctx *cli.Context) error {
+				var workerCtl worker.WorkerCtl
+				seed := ctx.GlobalInt64("random-seed")
+				if ctx.Bool("remote") {
+					job.loadFromRemoteConfig(config.Remote)
+
+					var k8sconfig *rest.Config
+
+					k8sSchema := os.Getenv("KUBERNETES_API_SCHEMA")
+					if k8sSchema != "http" { // InCluster
+						k8sconfig, err = rest.InClusterConfig()
+						if err != nil {
+							log.Fatalf("Can't get incluster config, %v", err)
+						}
+					} else { // For debug usage. > source dev_environment.sh
+						host := os.Getenv("KUBERNETES_SERVICE_HOST")
+						port := os.Getenv("KUBERNETES_SERVICE_PORT")
+
+						k8sconfig = &rest.Config{
+							Host: fmt.Sprintf("%s://%s", k8sSchema, net.JoinHostPort(host, port)),
+						}
+						token := os.Getenv("KUBERNETES_API_ACCOUNT_TOKEN")
+						if len(token) > 0 {
+							k8sconfig.BearerToken = token
+						}
+					}
+					exe, err1 := os.Executable()
+					exe, err2 := filepath.EvalSymlinks(exe)
+					if err1 != nil || err2 != nil {
+						exe = os.Args[0]
+						log.Error("Cannot use os.Executable to determine executable path, use", exe, "instead")
+					}
+					workerCtl = master.NewK8sWorkerCtl(&master.K8sWorkerConfig{
+						Name:         job.Name,
+						CPULimit:     "1",
+						Namespace:    *config.Remote.Namespace,
+						K8sConfig:    *k8sconfig,
+						WorkerNum:    ctx.Int("worker-num"),
+						Volumes:      *config.Remote.PodDesc.Volumes,
+						VolumeMounts: *config.Remote.PodDesc.VolumeMounts,
+						WorkerIDs:    workerIDs,
+						RandomSeed:   seed,
+						Image:        ctx.String("image-name"),
+						Command: []string{
+							exe,
+							"--config", strings.Join([]string(ctx.GlobalStringSlice("config")), ","),
+							"worker",
+							"--master-addr", fmt.Sprintf("%v:%v", ctx.String("service-name"), ctx.Int("port")),
+						},
+					})
+				} else {
+					job.loadFromLocalConfig(config.Local)
+					workerCtl = NewLocalWorkerCtl(job, ctx.Int("port"))
+				}
+
+				if ctx.Bool("listen-only") {
+					workerCtl = nil
+					fmt.Println("Listen only mode")
+					fmt.Println("Seed: ", seed)
+					fmt.Println("WorkerIDs: ")
+					for _, id := range workerIDs {
+						fmt.Println(id)
+					}
+					fmt.Println("Use following command to start a worker")
+					for _, id := range workerIDs {
+						fmt.Println(os.Args[0], "--random-seed", seed,
+							"worker", "--worker-id", id, "--worker-num", job.workerNum)
+					}
+				}
+
+				job.runMaster(workerCtl, strconv.Itoa(ctx.Int("port")))
+				return nil
+			},
+		},
+		{
+			Name: "worker",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "master-addr",
+					Value: "localhost:50051",
+					Usage: "Master's address, format: \"HOSTNAME:PORT\"",
+				},
+				cli.BoolFlag{
+					Name:  "local",
+					Usage: "This worker will read local config",
+				},
+			},
+			Usage: "Run in remote worker mode, this will read remote config items",
+			Action: func(ctx *cli.Context) error {
+				randomSeed := ctx.GlobalInt64("random-seed")
+				rand.Seed(randomSeed)
+				workerID := rand.Int63()
+
+				if ctx.Bool("local") {
+					job.loadFromLocalConfig(config.Local)
+				} else {
+					job.loadFromRemoteConfig(config.Remote)
+				}
+				w := worker{
+					job,
+					workerID,
+					60,
+					ctx.String("master-addr"),
+				}
+				w.runWorker()
+				return nil
+			},
+		},
+		{
+			Name: "deploy",
+			Flags: []cli.Flag{
+				cli.IntFlag{
+					Name:  "port",
+					Value: 50051,
+					Usage: "Define how many workers",
+				},
+				cli.IntFlag{
+					Name:  "worker-num",
+					Value: 1,
+					Usage: "Define how many workers",
+				},
+				cli.IntFlag{
+					Name:  "cpu-limit",
+					Value: 1,
+					Usage: "Define worker cpu limit when run in k8s",
+				},
+				cli.StringSliceFlag{
+					Name: "image-tags",
+				},
+				cli.StringFlag{
+					Name:  "asset-folder",
+					Value: "./assets",
+					Usage: "Files under asset folder will be packed into docker image. " +
+						"KMR APP can use this files as they are under './'",
+				},
+			},
+			Usage: "Deploy KMR Application in k8s",
+			Action: func(ctx *cli.Context) error {
+				dockerWorkDir := "/kmrapp"
+				// collect files under current folder
+				assetFolder, err := filepath.Abs(ctx.String("asset-folder"))
+				if err != nil {
+					return err
+				}
+				if f, err := os.Stat(assetFolder); err != nil || !f.IsDir() {
+					if os.IsNotExist(err) {
+						err := os.MkdirAll(assetFolder, 0777)
+						if err != nil {
+							return cli.NewMultiError(err)
+						}
+						defer os.RemoveAll(assetFolder)
+					} else {
+						return cli.NewExitError("Asset folder "+assetFolder+" is incorrect", 1)
+					}
+				}
+				log.Info("Asset folder is", assetFolder)
+
+				configFilePath := path.Join(assetFolder, "internal-used-config.json")
+				executablePath := path.Join(assetFolder, "internal-used-executable")
+
+				if _, err := os.Stat(configFilePath); err == nil {
+					return cli.NewExitError(configFilePath+"should not exists", 1)
+				}
+				if _, err := os.Stat(executablePath); err == nil {
+					return cli.NewExitError(executablePath+"should not exists", 1)
+				}
+
+				configJson, err := json.MarshalIndent(config, "", "\t")
+				if err != nil {
+					return err
+				}
+				err = ioutil.WriteFile(configFilePath, configJson, 0666)
+				defer os.Remove(configFilePath)
+				if err != nil {
+					return err
+				}
+
+				//TODO Use Ermine to pack executable and dynamic library
+				exe, err1 := os.Executable()
+				exe, err2 := filepath.EvalSymlinks(exe)
+				if err1 != nil || err2 != nil {
+					return cli.NewMultiError(errors.New("cannot locate executable"), err1, err2)
+				}
+				os.Link(exe, executablePath)
+				defer os.Remove(executablePath)
+
+				tags := ctx.StringSlice("image-tags")
+				if len(tags) == 0 {
+					tags = append(tags, strings.ToLower(job.GetName())+":"+"latest")
+				}
+
+				files, err := filepath.Glob(assetFolder + "/*")
+				if err != nil {
+					return err
+				}
+
+				fmt.Println(files)
+				imageName, err := util.CreateDockerImage(assetFolder, *conf.Remote.DockerRegistry, tags, files, dockerWorkDir)
+				if err != nil {
+					return err
+				}
+
+				pod, service, err := util.CreateK8sKMRJob(job.GetName(),
+					*conf.Remote.ServiceAccount,
+					*conf.Remote.Namespace,
+					*conf.Remote.PodDesc, imageName, dockerWorkDir,
+					[]string{dockerWorkDir + "/internal-used-executable", "--config", dockerWorkDir + "/internal-used-config.json",
+						"master",
+						"--remote", "--port", fmt.Sprint(ctx.Int("port")),
+						"--worker-num", fmt.Sprint(ctx.Int("worker-num")),
+						"--cpu-limit", fmt.Sprint(ctx.Int("cpu-limit")),
+						"--image-name", imageName,
+						"--service-name", job.GetName(),
+					},
+					int32(ctx.Int("port")))
+
+				if err != nil {
+					return cli.NewMultiError(err)
+				}
+				log.Info("Pod: ", pod, "Service: ", service)
+				return nil
+			},
+		},
+	}
+
+	app.Run(os.Args)
+	os.Exit(0)
+}
