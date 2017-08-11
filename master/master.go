@@ -2,31 +2,30 @@ package master
 
 import (
 	"net"
-	"os"
 	"sync"
 	"time"
 
-	kmrpb "github.com/naturali/kmr/pb"
-	"github.com/naturali/kmr/util/log"
-
 	"github.com/naturali/kmr/bucket"
 	"github.com/naturali/kmr/jobgraph"
+	"github.com/naturali/kmr/util/log"
+	kmrpb "github.com/naturali/kmr/pb"
+
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 const (
-	HeartBeatCodePulse    = 0
-	HeartBeatCodeDead     = 1
-	HeartBeatCodeFinished = 2
+	HeartBeatCodePulse = iota
+	HeartBeatCodeDead
+	HeartBeatCodeFinished
 
 	HeartBeatTimeout = 20 * time.Second
 )
 
 // Master is a map-reduce controller. It stores the state for each task and other runtime progress statuses.
 type Master struct {
-	port       string // Master listening port, like ":50051"
+	port string // Master listening port, like ":50051"
 
 	heartbeat     map[int64]chan int // Heartbeat channel for each worker
 	workerTaskMap map[int64]TaskDescription
@@ -54,11 +53,9 @@ func (m *Master) MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error {
 		}
 	}
 	// Delete previous node output files
-	if !node.IsEndNode() {
-		if p := node.GetPrev(); p != nil {
-			for _, file := range p.GetOutputFiles().GetFiles() {
-				m.reduceBucket.Delete(file)
-			}
+	if p := node.GetPrev(); p != nil {
+		for _, file := range p.GetOutputFiles().GetFiles() {
+			m.reduceBucket.Delete(file)
 		}
 	}
 	return nil
