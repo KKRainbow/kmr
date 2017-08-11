@@ -30,25 +30,6 @@ type worker struct {
 	masterAddr                           string
 }
 
-func LoadBuckets(m, i, r *config.BucketDescription) ([]*bucket.Bucket, error) {
-	mapBucket, err := bucket.NewBucket(m.BucketType, m.Config)
-	if err != nil {
-		return nil, err
-	}
-	interBucket, err := bucket.NewBucket(i.BucketType, i.Config)
-	if err != nil {
-		return nil, err
-	}
-	reduceBucket, err := bucket.NewBucket(r.BucketType, r.Config)
-	if err != nil {
-		return nil, err
-	}
-
-	return []*bucket.Bucket{
-		&mapBucket, &interBucket, &reduceBucket,
-	}, nil
-}
-
 func (w *worker) Run() {
 	//Here we must know the master address
 	var retcode kmrpb.ReportInfo_ErrorCode
