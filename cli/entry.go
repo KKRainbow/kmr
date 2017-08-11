@@ -22,6 +22,7 @@ import (
 	"github.com/naturali/kmr/bucket"
 	"net"
 	"github.com/naturali/kmr/master"
+	"github.com/naturali/kmr/executor"
 )
 
 func loadBuckets(m, i, r *config.BucketDescription) ([]*bucket.Bucket, error) {
@@ -191,7 +192,7 @@ func Run(job *jobgraph.Job) {
 					workerCtl.StartWorkers(ctx.Int("worker-num"))
 				}
 
-				master.NewMaster(job, strconv.Itoa(ctx.Int("port")))
+				master.NewMaster(job, strconv.Itoa(ctx.Int("port")), buckets[0], buckets[1], buckets[2])
 				return nil
 			},
 		},
@@ -219,13 +220,8 @@ func Run(job *jobgraph.Job) {
 				} else {
 					buckets,err = loadBucketsFromRemote(conf.Remote)
 				}
-				w := worker{
-					job,
-					workerID,
-					60,
-					ctx.String("master-addr"),
-				}
-				w.runWorker()
+				w := executor.NewWorker(job, workerID, ctx.String("master-addr"), 64, buckets[0],buckets[1], buckets[2])
+				w.Run()
 				return nil
 			},
 		},
