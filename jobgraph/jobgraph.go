@@ -40,6 +40,14 @@ func (node *MapReduceNode) IsEndNode() (res bool) {
 	return
 }
 
+func (node *MapReduceNode) GetPrev() *MapReduceNode {
+	return node.chainPrev
+}
+
+func (node *MapReduceNode) GetNext() *MapReduceNode {
+	return node.chainNext
+}
+
 func (node *MapReduceNode) GetIndex() int {
 	return node.index
 }
