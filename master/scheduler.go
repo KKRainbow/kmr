@@ -28,6 +28,7 @@ type EventHandler interface {
 	MapReduceNodeFailed(node *jobgraph.MapReduceNode) error
 	JobNodeSucceeded(node *jobgraph.JobNode) error
 	JobNodeFailed(node *jobgraph.JobNode) error
+	JobFinished(job *jobgraph.Job)
 }
 
 const (
@@ -134,94 +135,99 @@ func (s *Scheduler) Schedule(visitor EventHandler) (requestFunc RequestFunction,
 		pushJobOutputChan    = make(chan (<-chan int), 1)
 		requestJobOutputChan = make(chan requestJobOutput, 1)
 	)
-	select {
-	case desc := <-pushJobChan:
-		state := make(chan int, 1)
-		j, err := s.CreateMapReduceTasks(desc)
-		if err != nil {
-			log.Fatal(err)
-		}
-		availableJobs = append(availableJobs, &j)
-		jobResultChanMap[&j] = state
-		pushJobOutputChan <- state
-	case <-requestJobChan:
-		for _, processingJob := range availableJobs {
-			var tasks *[]*task
-			if mapperFinishedMap[processingJob] == len(processingJob.mapTasks) {
-				phaseMap[processingJob] = reducePhase
-				tasks = &processingJob.reduceTasks
-			} else if reducerFinishedMap[processingJob] < len(processingJob.reduceTasks) {
-				phaseMap[processingJob] = mapPhase
-				tasks = &processingJob.mapTasks
-			} else {
-				log.Fatal("After job node finished, this should not exist")
-			}
-			for _, task := range *tasks {
-				if _, ok := taskStateMap[task]; !ok {
-					taskStateMap[task] = StateIdle
+
+	go func() {
+		for {
+			select {
+			case desc := <-pushJobChan:
+				state := make(chan int, 1)
+				j, err := s.CreateMapReduceTasks(desc)
+				if err != nil {
+					log.Fatal(err)
 				}
-				if taskStateMap[task] == StateIdle {
-					taskStateMap[task] = StateInProgress
-					taskDescID++
-					requestJobOutputChan <- requestJobOutput{
-						TaskDescription{
-							ID:                 taskDescID,
-							JobNodeName:        processingJob.jobDesc.JobNodeName,
-							MapReduceNodeIndex: processingJob.jobDesc.MapReduceNodeIndex,
-							Phase:              phaseMap[processingJob],
-							PhaseSubIndex:      task.subIndex,
-						},
-						nil,
-					}
-				}
-			}
-		}
-		requestJobOutputChan <- requestJobOutput{TaskDescription{}, nil}
-	case rep := <-reportJobChan:
-		var t *task
-		var ok bool
-		if t, ok = taskIDMap[rep.desc.ID]; !ok || t == nil {
-			log.Error("Report a task doesn't exists")
-			return
-		}
-		if _, ok := taskStateMap[t]; !ok {
-			log.Panic("Delivered task doesn't have a state")
-			return
-		}
-		state := &taskStateMap[t]
-		if rep.result == ResultOK {
-			if *state != StateInProgress && *state != StateCompleted {
-				log.Errorf("State of task reporting finished is not processing or completed")
-			} else {
-				if *state == StateInProgress {
-					if phaseMap[t.job] == mapPhase {
-						mapperFinishedMap[t.job]++
+				availableJobs = append(availableJobs, &j)
+				jobResultChanMap[&j] = state
+				pushJobOutputChan <- state
+			case <-requestJobChan:
+				for _, processingJob := range availableJobs {
+					var tasks *[]*task
+					if mapperFinishedMap[processingJob] == len(processingJob.mapTasks) {
+						phaseMap[processingJob] = reducePhase
+						tasks = &processingJob.reduceTasks
+					} else if reducerFinishedMap[processingJob] < len(processingJob.reduceTasks) {
+						phaseMap[processingJob] = mapPhase
+						tasks = &processingJob.mapTasks
 					} else {
-						reducerFinishedMap[t.job]++
-						if reducerFinishedMap[t.job] == len(t.job.reduceTasks) {
-							curJobIdx := -1
-							// remove this job
-							for idx := range availableJobs {
-								if availableJobs[idx] == t.job {
-									curJobIdx = idx
-								}
-							}
-							if curJobIdx >= 0 {
-								availableJobs[curJobIdx] = availableJobs[len(availableJobs)-1]
-								availableJobs = availableJobs[:len(availableJobs)-1]
-								jobResultChanMap[t.job] <- ResultOK
-							} else {
-								log.Fatal("Cannot find job which is reporting to be done")
+						log.Fatal("After job node finished, this should not exist")
+					}
+					for _, task := range *tasks {
+						if _, ok := taskStateMap[task]; !ok {
+							taskStateMap[task] = StateIdle
+						}
+						if taskStateMap[task] == StateIdle {
+							taskStateMap[task] = StateInProgress
+							taskDescID++
+							requestJobOutputChan <- requestJobOutput{
+								TaskDescription{
+									ID:                 taskDescID,
+									JobNodeName:        processingJob.jobDesc.JobNodeName,
+									MapReduceNodeIndex: processingJob.jobDesc.MapReduceNodeIndex,
+									Phase:              phaseMap[processingJob],
+									PhaseSubIndex:      task.subIndex,
+								},
+								nil,
 							}
 						}
 					}
 				}
-				*state = StateCompleted
+				requestJobOutputChan <- requestJobOutput{TaskDescription{}, nil}
+			case rep := <-reportJobChan:
+				var t *task
+				var ok bool
+				if t, ok = taskIDMap[rep.desc.ID]; !ok || t == nil {
+					log.Error("Report a task doesn't exists")
+					return
+				}
+				if _, ok := taskStateMap[t]; !ok {
+					log.Panic("Delivered task doesn't have a state")
+					return
+				}
+				state := &taskStateMap[t]
+				if rep.result == ResultOK {
+					if *state != StateInProgress && *state != StateCompleted {
+						log.Errorf("State of task reporting finished is not processing or completed")
+					} else {
+						if *state == StateInProgress {
+							if phaseMap[t.job] == mapPhase {
+								mapperFinishedMap[t.job]++
+							} else {
+								reducerFinishedMap[t.job]++
+								if reducerFinishedMap[t.job] == len(t.job.reduceTasks) {
+									curJobIdx := -1
+									// remove this job
+									for idx := range availableJobs {
+										if availableJobs[idx] == t.job {
+											curJobIdx = idx
+										}
+									}
+									if curJobIdx >= 0 {
+										availableJobs[curJobIdx] = availableJobs[len(availableJobs)-1]
+										availableJobs = availableJobs[:len(availableJobs)-1]
+										jobResultChanMap[t.job] <- ResultOK
+									} else {
+										log.Fatal("Cannot find job which is reporting to be done")
+									}
+								}
+							}
+						}
+						*state = StateCompleted
+					}
+				} else {
+					*state = StateIdle
+				}
 			}
-		} else {
-			*state = StateIdle
 		}
-	}
+	}()
 
 	// PushJob Push a job to execute
 	pushJobFunc := func(jobDesc jobgraph.JobDescription) <-chan int {
@@ -313,4 +319,5 @@ func (s *Scheduler) MapReduceNodeSchedule(pushJobFunc PushJobFunction, eventHand
 		go topo(n)
 	}
 	waitForAll.Wait()
+	eventHandler.JobFinished(s.jobGraph)
 }
