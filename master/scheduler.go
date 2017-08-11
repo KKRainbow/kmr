@@ -111,41 +111,40 @@ func (s *Scheduler) CreateMapReduceTasks(desc jobgraph.JobDescription) (mrJob ma
 func (s *Scheduler) Schedule(visitor EventHandler) (requestFunc RequestFunction, reportFunc ReportFunction) {
 	jobResultChanMap := make(map[*mapReduceJob]<-chan int)
 	availableJobs := make([]*mapReduceJob, 0)
-	availableJobsLock := sync.Mutex{}
 	taskDescID := 0
-	/*
-		type ReportFunction func(task TaskDescription, state int)
-		type PushJobFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
-	*/
-	// PushJob Push a job to execute
-	pushJobFunc := func(jobDesc jobgraph.JobDescription) (state <-chan int) {
-		state = make(chan int, 1)
-
-		j, err := s.CreateMapReduceTasks(jobDesc)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		availableJobsLock.Lock()
-		defer availableJobsLock.Unlock()
-		availableJobs = append(availableJobs, &j)
-
-		jobResultChanMap[&j] = state
-
-		return
-	}
-	go s.MapReduceNodeSchedule(pushJobFunc, visitor)
 
 	mapperFinishedMap := make(map[*mapReduceJob]int)
 	reducerFinishedMap := make(map[*mapReduceJob]int)
 	phaseMap := make(map[*mapReduceJob]string)
 	taskStateMap := make(map[*task]int)
 	taskIDMap := make(map[int]*task)
-	mapsLock := sync.Mutex{}
 
-	requestFunc = func() (TaskDescription, error) {
-		mapsLock.Lock()
-		defer mapsLock.Unlock()
+	type reportJobInput struct {
+		desc  TaskDescription
+		result int
+	}
+	type requestJobOutput struct {
+		desc TaskDescription
+		err  error
+	}
+	var (
+		pushJobChan          = make(chan jobgraph.JobDescription, 1)
+		requestJobChan       = make(chan int, 1)
+		reportJobChan        = make(chan reportJobInput, 1)
+		pushJobOutputChan    = make(chan (<-chan int), 1)
+		requestJobOutputChan = make(chan requestJobOutput, 1)
+	)
+	select {
+	case desc := <-pushJobChan:
+		state := make(chan int, 1)
+		j, err := s.CreateMapReduceTasks(desc)
+		if err != nil {
+			log.Fatal(err)
+		}
+		availableJobs = append(availableJobs, &j)
+		jobResultChanMap[&j] = state
+		pushJobOutputChan <- state
+	case <-requestJobChan:
 		for _, processingJob := range availableJobs {
 			var tasks *[]*task
 			if mapperFinishedMap[processingJob] == len(processingJob.mapTasks) {
@@ -164,25 +163,24 @@ func (s *Scheduler) Schedule(visitor EventHandler) (requestFunc RequestFunction,
 				if taskStateMap[task] == StateIdle {
 					taskStateMap[task] = StateInProgress
 					taskDescID++
-					return TaskDescription{
-						ID:                 taskDescID,
-						JobNodeName:        processingJob.jobDesc.JobNodeName,
-						MapReduceNodeIndex: processingJob.jobDesc.MapReduceNodeIndex,
-						Phase:              phaseMap[processingJob],
-						PhaseSubIndex:      task.subIndex,
-					}, nil
+					requestJobOutputChan <- requestJobOutput{
+						TaskDescription{
+							ID:                 taskDescID,
+							JobNodeName:        processingJob.jobDesc.JobNodeName,
+							MapReduceNodeIndex: processingJob.jobDesc.MapReduceNodeIndex,
+							Phase:              phaseMap[processingJob],
+							PhaseSubIndex:      task.subIndex,
+						},
+						nil,
+					}
 				}
 			}
 		}
-		return TaskDescription{}, NoAvailableJobError
-	}
-
-	reportFunc = func(desc TaskDescription, result int) {
-		mapsLock.Lock()
-		defer mapsLock.Unlock()
+		requestJobOutputChan <- requestJobOutput{TaskDescription{}, nil}
+	case rep := <-reportJobChan:
 		var t *task
 		var ok bool
-		if t, ok = taskIDMap[desc.ID]; !ok || t == nil {
+		if t, ok = taskIDMap[rep.desc.ID]; !ok || t == nil {
 			log.Error("Report a task doesn't exists")
 			return
 		}
@@ -191,7 +189,7 @@ func (s *Scheduler) Schedule(visitor EventHandler) (requestFunc RequestFunction,
 			return
 		}
 		state := &taskStateMap[t]
-		if result == ResultOK {
+		if rep.result == ResultOK {
 			if *state != StateInProgress && *state != StateCompleted {
 				log.Errorf("State of task reporting finished is not processing or completed")
 			} else {
@@ -224,6 +222,24 @@ func (s *Scheduler) Schedule(visitor EventHandler) (requestFunc RequestFunction,
 			*state = StateIdle
 		}
 	}
+
+	// PushJob Push a job to execute
+	pushJobFunc := func(jobDesc jobgraph.JobDescription) <-chan int {
+		pushJobChan <- jobDesc
+		return <-pushJobOutputChan
+	}
+
+	requestFunc = func() (TaskDescription, error) {
+		requestJobChan <- 1
+		out := <-requestJobOutputChan
+		return out.desc, out.err
+	}
+
+	reportFunc = func(desc TaskDescription, result int) {
+		reportJobChan <- reportJobInput{desc, result}
+	}
+
+	go s.MapReduceNodeSchedule(pushJobFunc, visitor)
 	return
 }
 
