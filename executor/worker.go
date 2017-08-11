@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/naturali/kmr/config"
 	"github.com/naturali/kmr/jobgraph"
 	"github.com/naturali/kmr/master"
 	kmrpb "github.com/naturali/kmr/pb"
 	"github.com/naturali/kmr/records"
 	"github.com/naturali/kmr/util/log"
-
 	"github.com/naturali/kmr/bucket"
+
 	"google.golang.org/grpc"
 )
 
@@ -22,7 +21,7 @@ const (
 	reducePhase = "reduce"
 )
 
-type worker struct {
+type Worker struct {
 	job                                  *jobgraph.Job
 	mapBucket, interBucket, reduceBucket bucket.Bucket
 	workerID                             int64
@@ -30,7 +29,21 @@ type worker struct {
 	masterAddr                           string
 }
 
-func (w *worker) Run() {
+// NewWorker create a worker
+func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSize int, mapBucket, interBucket, reduceBucket *bucket.Bucket) *Worker {
+	worker := Worker{
+		job: job,
+		masterAddr:masterAddr,
+		mapBucket:mapBucket,
+		interBucket:interBucket,
+		reduceBucket:reduceBucket,
+		workerID: workerID,
+		flushOutSize: flushOutSize,
+	}
+	return &worker
+}
+
+func (w *Worker) Run() {
 	//Here we must know the master address
 	var retcode kmrpb.ReportInfo_ErrorCode
 
@@ -51,7 +64,7 @@ func (w *worker) Run() {
 			continue
 		}
 		taskInfo := task.Taskinfo
-		timer := time.NewTicker(master.HEARTBEAT_TIMEOUT / 2)
+		timer := time.NewTicker(master.HeartBeatTimeout / 2)
 		go func() {
 			for range timer.C {
 				// SendHeartBeat
@@ -83,7 +96,7 @@ func (w *worker) Run() {
 	}
 }
 
-func (w *worker) executeTask(task *kmrpb.TaskInfo) {
+func (w *Worker) executeTask(task *kmrpb.TaskInfo) {
 	cw := &ComputeWrapClass{}
 	mapredNode := w.job.GetMapReduceNode(task.JobNodeName, int(task.MapredNodeIndex))
 	cw.BindMapper(mapredNode.GetMapper())
@@ -103,7 +116,7 @@ func (w *worker) executeTask(task *kmrpb.TaskInfo) {
 	}
 }
 
-func (w *worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) {
+func (w *Worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) {
 	readers := make([]records.RecordReader, 0)
 	interFiles := node.GetInterFileNameGenerator().GetReducerInputFiles(int(subIndex))
 	for _, interFile := range interFiles {
@@ -134,7 +147,7 @@ func (w *worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, 
 	recordWriter.Close()
 }
 
-func (w *worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) {
+func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) {
 	// Inputs Files
 	inputFiles := node.GetInputFiles().GetFiles()
 	readers := make([]records.RecordReader, 0)

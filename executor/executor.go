@@ -58,8 +58,7 @@ func (cw *ComputeWrapClass) BindCombiner(combiner mapred.Reducer) {
 				log.Errorf("value of key: %v has been collected", key)
 				return
 			}
-			valueBytes := cw.reducer.GetOutputValueTypeConverter().ToBytes(v)
-			res = valueBytes
+			res = cw.reducer.GetOutputValueTypeConverter().ToBytes(v)
 			alreadyOutput = true
 		}
 		cw.reducer.Reduce(cw.reducer.GetInputKeyTypeConverter().FromBytes(key), nextIter, collectFunc, nil)
@@ -172,7 +171,6 @@ func (cw *ComputeWrapClass) DoMap(rr records.RecordReader, writers []records.Rec
 		readers = append(readers, recordReader)
 	}
 	readers = append(readers, records.MakeRecordReader("memory", map[string]interface{}{"data": aggregated}))
-	/////////////////////////Move to jobgraph
 
 	sorted := make(chan *records.Record, 1024)
 	go records.MergeSort(readers, sorted)
@@ -194,6 +192,9 @@ func (cw *ComputeWrapClass) DoMap(rr records.RecordReader, writers []records.Rec
 		writers[rBucketID].WriteRecord(curRecord)
 	}
 
+	for _, reader := range readers {
+		reader.Close()
+	}
 	// Delete flushOutFiles
 	for _, file := range flushOutFiles {
 		flushBucket.Delete(file)

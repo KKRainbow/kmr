@@ -2,63 +2,80 @@ package master
 
 import (
 	"net"
-	"os"
+	"sync"
 	"time"
 
-	kmrpb "github.com/naturali/kmr/pb"
+	"github.com/naturali/kmr/bucket"
+	"github.com/naturali/kmr/jobgraph"
 	"github.com/naturali/kmr/util/log"
+	kmrpb "github.com/naturali/kmr/pb"
 
 	"github.com/naturali/kmr/jobgraph"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-	"k8s.io/client-go/kubernetes"
 )
 
 const (
-	HeartBeatCodePulse    = 0
-	HeartBeatCodeDead     = 1
-	HeartBeatCodeFinished = 2
+	HeartBeatCodePulse = iota
+	HeartBeatCodeDead
+	HeartBeatCodeFinished
 
 	HeartBeatTimeout = 20 * time.Second
 )
 
 // Master is a map-reduce controller. It stores the state for each task and other runtime progress statuses.
 type Master struct {
-	port       string // Master listening port, like ":50051"
-	nextTaskID int
+	port string // Master listening port, like ":50051"
 
 	heartbeat     map[int64]chan int // Heartbeat channel for each worker
 	workerTaskMap map[int64]TaskDescription
 
-	k8sclient *kubernetes.Clientset
-
 	job       *jobgraph.Job
 	scheduler Scheduler
 
-	checkpointFile *os.File
-
-	requestTaskFunc RequestFunction
-	reportTaskFunc  ReportFunction
+	mapBucket, interBucket, reduceBucket bucket.Bucket
+	waitFinish                           sync.WaitGroup
 }
 
-func (master *Master) TaskSucceeded(jobDesc *jobgraph.JobDescription) error {
+func (m *Master) TaskSucceeded(jobDesc *jobgraph.JobDescription) error {
 	return nil
 }
-func (master *Master) TaskFailed(jobDesc *jobgraph.JobDescription) error {
+
+func (m *Master) TaskFailed(jobDesc *jobgraph.JobDescription) error {
 	return nil
 }
-func (master *Master) MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error {
+
+func (m *Master) MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error {
+	// Delete inter files
+	for mapperIdx := 0; mapperIdx < node.GetMapperNum(); mapperIdx++ {
+		for reducerIdx := 0; reducerIdx < node.GetReducerNum(); reducerIdx++ {
+			m.interBucket.Delete(node.GetInterFileNameGenerator().GetFile(mapperIdx, reducerIdx))
+		}
+	}
+	// Delete previous node output files
+	if p := node.GetPrev(); p != nil {
+		for _, file := range p.GetOutputFiles().GetFiles() {
+			m.reduceBucket.Delete(file)
+		}
+	}
 	return nil
 }
-func (master *Master) MapReduceNodeFailed(node *jobgraph.MapReduceNode) error {
+
+func (m *Master) MapReduceNodeFailed(node *jobgraph.MapReduceNode) error {
 	return nil
 }
-func (master *Master) JobNodeSucceeded(node *jobgraph.JobNode) error {
+
+func (m *Master) JobNodeSucceeded(node *jobgraph.JobNode) error {
 	return nil
 }
-func (master *Master) JobNodeFailed(node *jobgraph.JobNode) error {
+
+func (m *Master) JobNodeFailed(node *jobgraph.JobNode) error {
 	return nil
+}
+
+func (m *Master) JobFinished(job *jobgraph.Job) {
+	m.waitFinish.Done()
 }
 
 // CheckHeartbeatForEachWorker
@@ -66,28 +83,28 @@ func (master *Master) JobNodeFailed(node *jobgraph.JobNode) error {
 // heartbeat.
 // If the task is DEAD (occur error while the worker is doing the task) or cannot detect heartbeat in time. Master
 // will releases the task, so that another work can takeover
-// Master will check the heartbeat every 5 seconds. If master cannot detect any heartbeat in the meantime, master
+// Master will check the heartbeat every 5 seconds. If m cannot detect any heartbeat in the meantime, master
 // regards it as a DEAD worker.
-func (master *Master) CheckHeartbeatForEachWorker(workerID int64, heartbeat chan int) {
+func (m *Master) CheckHeartbeatForEachWorker(workerID int64, heartbeat chan int) {
 	for {
 		timeout := time.After(HeartBeatTimeout)
 		select {
 		case <-timeout:
 			// the worker fuck up, release the task
 			log.Error("Worker: ", workerID, "fuck up")
-			master.reportTaskFunc(master.workerTaskMap[workerID], ResultFailed)
-			delete(master.workerTaskMap, workerID)
+			m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultFailed)
+			delete(m.workerTaskMap, workerID)
 			return
 		case heartbeatCode := <-heartbeat:
 			// the worker is doing his job
 			switch heartbeatCode {
 			case HeartBeatCodeDead:
 				log.Error("Worker: ", workerID, "fuck up")
-				master.reportTaskFunc(master.workerTaskMap[workerID], ResultFailed)
-				delete(master.workerTaskMap, workerID)
+				m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultFailed)
+				delete(m.workerTaskMap, workerID)
 				return
 			case HeartBeatCodeFinished:
-				master.reportTaskFunc(master.workerTaskMap[workerID], ResultOK)
+				m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultOK)
 				return
 			case HeartBeatCodePulse:
 				continue
@@ -96,13 +113,34 @@ func (master *Master) CheckHeartbeatForEachWorker(workerID int64, heartbeat chan
 	}
 }
 
+// Run run and wait until all job finished
+func (m *Master) Run() {
+	m.scheduler.StartSchedule(m)
+
+	m.waitFinish.Add(1)
+	go func() {
+		lis, err := net.Listen("tcp", ":"+m.port)
+		if err != nil {
+			log.Fatalf("failed to listen: %v", err)
+		}
+		log.Infof("listen localhost: %s", m.port)
+		s := grpc.NewServer()
+		kmrpb.RegisterMasterServer(s, &server{master: m})
+		reflection.Register(s)
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}()
+	m.waitFinish.Wait()
+}
+
 type server struct {
 	master *Master
 }
 
 // RequestTask is to deliver a task to worker.
 func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*kmrpb.Task, error) {
-	t, err := s.master.requestTaskFunc()
+	t, err := s.master.scheduler.RequestTask()
 	s.master.heartbeat[in.WorkerID] = make(chan int, 10)
 	s.master.workerTaskMap[in.WorkerID] = t
 	go s.master.CheckHeartbeatForEachWorker(in.WorkerID, s.master.heartbeat[in.WorkerID])
@@ -144,35 +182,19 @@ func (s *server) ReportTask(ctx context.Context, in *kmrpb.ReportInfo) (*kmrpb.R
 }
 
 // NewMaster Create a master, waiting for workers
-func NewMaster(job *jobgraph.Job, port string) *Master {
+func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBucket *bucket.Bucket) *Master {
 	m := &Master{
 		port:          port,
 		workerTaskMap: make(map[int64]TaskDescription),
 		heartbeat:     make(map[int64]chan int),
 		job:           job,
+		mapBucket:     mapBucket,
+		interBucket:   interBucket,
+		reduceBucket:  reduceBucket,
 	}
 
 	m.scheduler = Scheduler{
 		jobGraph: job,
 	}
-
-	m.requestTaskFunc, m.reportTaskFunc = m.scheduler.Schedule(m)
-
-	go func() {
-		lis, err := net.Listen("tcp", ":"+port)
-		if err != nil {
-			log.Fatalf("failed to listen: %v", err)
-		}
-		log.Infof("listen localhost: %s", port)
-		s := grpc.NewServer()
-		kmrpb.RegisterMasterServer(s, &server{master: m})
-		reflection.Register(s)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
-		}
-	}()
-
-	m.heartbeat = make(map[int64]chan int)
-
 	return m
 }
