@@ -157,27 +157,29 @@ func (s *Scheduler) StartSchedule(visitor EventHandler) error {
 		desc TaskDescription
 		err  error
 	}
+	type pushJobInput struct {
+		desc jobgraph.JobDescription
+		output chan (<-chan int)
+	}
 	var (
-		pushJobChan          = make(chan jobgraph.JobDescription, 1)
-		requestJobChan       = make(chan int, 1)
+		pushJobChan          = make(chan pushJobInput, 1)
+		requestJobChan       = make(chan (chan requestJobOutput), 1)
 		reportJobChan        = make(chan reportJobInput, 1)
-		pushJobOutputChan    = make(chan (<-chan int), 1)
-		requestJobOutputChan = make(chan requestJobOutput, 1)
 	)
 
 	go func() {
 		for {
 			select {
-			case desc := <-pushJobChan:
+			case c := <-pushJobChan:
 				state := make(chan int, 1)
-				j, err := s.createMapReduceTasks(desc)
+				j, err := s.createMapReduceTasks(c.desc)
 				if err != nil {
 					log.Fatal(err)
 				}
 				s.availableJobs = append(s.availableJobs, &j)
 				s.jobResultChanMap[&j] = state
-				pushJobOutputChan <- state
-			case <-requestJobChan:
+				c.output <- state
+			case c := <-requestJobChan:
 				for _, processingJob := range s.availableJobs {
 					var tasks *[]*task
 					if s.mapperFinishedCnt[processingJob] == len(processingJob.mapTasks) {
@@ -196,7 +198,7 @@ func (s *Scheduler) StartSchedule(visitor EventHandler) error {
 						if s.taskStateMap[task] == StateIdle {
 							s.taskStateMap[task] = StateInProgress
 							s.taskDescID++
-							requestJobOutputChan <- requestJobOutput{
+							c <- requestJobOutput{
 								TaskDescription{
 									ID:                 s.taskDescID,
 									JobNodeName:        processingJob.jobDesc.JobNodeName,
@@ -209,7 +211,7 @@ func (s *Scheduler) StartSchedule(visitor EventHandler) error {
 						}
 					}
 				}
-				requestJobOutputChan <- requestJobOutput{TaskDescription{}, nil}
+				c <- requestJobOutput{TaskDescription{}, nil}
 			case rep := <-reportJobChan:
 				var t *task
 				var ok bool
@@ -260,13 +262,15 @@ func (s *Scheduler) StartSchedule(visitor EventHandler) error {
 
 	// PushJob Push a job to execute
 	pushJobFunc := func(jobDesc jobgraph.JobDescription) <-chan int {
-		pushJobChan <- jobDesc
-		return <-pushJobOutputChan
+		input := pushJobInput{jobDesc, make(chan (chan int),1 )}
+		pushJobChan <- input
+		return <-input.output
 	}
 
 	s.requestFunc = func() (TaskDescription, error) {
-		requestJobChan <- 1
-		out := <-requestJobOutputChan
+		c := make(chan requestJobOutput, 1)
+		requestJobChan <- c
+		out := <-c
 		return out.desc, out.err
 	}
 
