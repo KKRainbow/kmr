@@ -10,7 +10,6 @@ import (
 	"github.com/naturali/kmr/util/log"
 	kmrpb "github.com/naturali/kmr/pb"
 
-	"github.com/naturali/kmr/jobgraph"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
