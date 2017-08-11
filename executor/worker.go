@@ -10,8 +10,8 @@ import (
 	kmrpb "github.com/naturali/kmr/pb"
 	"github.com/naturali/kmr/records"
 	"github.com/naturali/kmr/util/log"
-
 	"github.com/naturali/kmr/bucket"
+
 	"google.golang.org/grpc"
 )
 

@@ -191,6 +191,9 @@ func (cw *ComputeWrapClass) DoMap(rr records.RecordReader, writers []records.Rec
 		writers[rBucketID].WriteRecord(curRecord)
 	}
 
+	for _, reader := range readers {
+		reader.Close()
+	}
 	// Delete flushOutFiles
 	for _, file := range flushOutFiles {
 		flushBucket.Delete(file)
