@@ -23,7 +23,6 @@ type K8sWorkerConfig struct {
 	Namespace    string
 	K8sConfig    rest.Config
 	WorkerNum int
-	WorkerIDs []int64
 	RandomSeed int64
 	Command []string
 }
@@ -138,7 +137,7 @@ func (w *K8sWorkerCtl) StopWorkers() error {
 	})
 }
 func (w *K8sWorkerCtl) GetWorkerNum() int {
-	return len(w.config.WorkerIDs)
+	return w.config.WorkerNum
 }
 
 func NewK8sWorkerCtl(workerConfig *K8sWorkerConfig) *K8sWorkerCtl {

@@ -20,7 +20,38 @@ import (
 	"github.com/naturali/kmr/util"
 	"math/rand"
 	"github.com/naturali/kmr/bucket"
+	"net"
+	"github.com/naturali/kmr/master"
 )
+
+func loadBuckets(m, i, r *config.BucketDescription) ([]*bucket.Bucket, error) {
+	mapBucket, err := bucket.NewBucket(m.BucketType, m.Config)
+	if err != nil {
+		return nil, err
+	}
+	interBucket, err := bucket.NewBucket(i.BucketType, i.Config)
+	if err != nil {
+		return nil, err
+	}
+	reduceBucket, err := bucket.NewBucket(r.BucketType, r.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	return []*bucket.Bucket{
+		&mapBucket, &interBucket, &reduceBucket,
+	}, nil
+}
+
+func loadBucketsFromRemote(conf *config.RemoteConfig) ([]*bucket.Bucket, error) {
+	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket)
+	return buckets, err
+}
+
+func loadBucketsFromLocal(conf *config.LocalConfig) ([]*bucket.Bucket, error) {
+	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket)
+	return buckets, err
+}
 
 func Run(job *jobgraph.Job) {
 	if len(job.GetName()) == 0 {
@@ -34,7 +65,7 @@ func Run(job *jobgraph.Job) {
 	}
 	var conf *config.KMRConfig
 
-	var mapBucket, interBucket, reduceBucket bucket.Bucket
+	var buckets []*bucket.Bucket
 
 	app := cli.NewApp()
 	app.Name = job.GetName()
@@ -101,7 +132,8 @@ func Run(job *jobgraph.Job) {
 				var workerCtl worker.WorkerCtl
 				seed := ctx.GlobalInt64("random-seed")
 				if ctx.Bool("remote") {
-					job.loadFromRemoteConfig(config.Remote)
+					var err error
+					buckets,err = loadBucketsFromRemote(conf.Remote)
 
 					var k8sconfig *rest.Config
 
@@ -129,15 +161,14 @@ func Run(job *jobgraph.Job) {
 						exe = os.Args[0]
 						log.Error("Cannot use os.Executable to determine executable path, use", exe, "instead")
 					}
-					workerCtl = master.NewK8sWorkerCtl(&master.K8sWorkerConfig{
-						Name:         job.Name,
+					workerCtl = worker.NewK8sWorkerCtl(&worker.K8sWorkerConfig{
+						Name:         job.GetName(),
 						CPULimit:     "1",
-						Namespace:    *config.Remote.Namespace,
+						Namespace:    *conf.Remote.Namespace,
 						K8sConfig:    *k8sconfig,
 						WorkerNum:    ctx.Int("worker-num"),
-						Volumes:      *config.Remote.PodDesc.Volumes,
-						VolumeMounts: *config.Remote.PodDesc.VolumeMounts,
-						WorkerIDs:    workerIDs,
+						Volumes:      *conf.Remote.PodDesc.Volumes,
+						VolumeMounts: *conf.Remote.PodDesc.VolumeMounts,
 						RandomSeed:   seed,
 						Image:        ctx.String("image-name"),
 						Command: []string{
@@ -148,26 +179,19 @@ func Run(job *jobgraph.Job) {
 						},
 					})
 				} else {
-					job.loadFromLocalConfig(config.Local)
-					workerCtl = NewLocalWorkerCtl(job, ctx.Int("port"))
+					buckets, err = loadBucketsFromLocal(conf.Local)
+					workerCtl = worker.NewLocalWorkerCtl(job, ctx.Int("port"))
 				}
 
 				if ctx.Bool("listen-only") {
 					workerCtl = nil
-					fmt.Println("Listen only mode")
-					fmt.Println("Seed: ", seed)
-					fmt.Println("WorkerIDs: ")
-					for _, id := range workerIDs {
-						fmt.Println(id)
-					}
-					fmt.Println("Use following command to start a worker")
-					for _, id := range workerIDs {
-						fmt.Println(os.Args[0], "--random-seed", seed,
-							"worker", "--worker-id", id, "--worker-num", job.workerNum)
-					}
 				}
 
-				job.runMaster(workerCtl, strconv.Itoa(ctx.Int("port")))
+				if workerCtl != nil {
+					workerCtl.StartWorkers(ctx.Int("worker-num"))
+				}
+
+				master.NewMaster(job, strconv.Itoa(ctx.Int("port")))
 				return nil
 			},
 		},
@@ -191,9 +215,9 @@ func Run(job *jobgraph.Job) {
 				workerID := rand.Int63()
 
 				if ctx.Bool("local") {
-					job.loadFromLocalConfig(config.Local)
+					buckets,err = loadBucketsFromLocal(conf.Local)
 				} else {
-					job.loadFromRemoteConfig(config.Remote)
+					buckets,err = loadBucketsFromRemote(conf.Remote)
 				}
 				w := worker{
 					job,
