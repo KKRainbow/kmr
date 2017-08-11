@@ -19,9 +19,9 @@ type TaskDescription struct {
 
 type ReportFunction func(task TaskDescription, state int)
 type RequestFunction func() (TaskDescription, error)
-type MapReduceJobVisitFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
+type PushJobFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
 
-type TaskVisitor interface {
+type EventHandler interface {
 	TaskSucceeded(jobDesc *jobgraph.JobDescription) error
 	TaskFailed(jobDesc *jobgraph.JobDescription) error
 	MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error
@@ -38,7 +38,7 @@ const (
 	ResultOK
 	ResultFailed
 
-	mapPhase = "map"
+	mapPhase    = "map"
 	reducePhase = "reduce"
 )
 
@@ -48,7 +48,7 @@ var NoAvailableJobError = errors.New("No available job")
 // every MapReduce node can be divided into (nMappers*nReducer) tasks.
 // executor request a task to execute.
 type Scheduler struct {
-	jobGraph              *jobgraph.Job
+	jobGraph *jobgraph.Job
 }
 
 type task struct {
@@ -64,21 +64,21 @@ type mapReduceJob struct {
 	mapTasks, reduceTasks []*task
 }
 
-func (s *Scheduler) ConvertToMapReduceJob(desc jobgraph.JobDescription) (mrJob mapReduceJob, err error) {
+func (s *Scheduler) CreateMapReduceTasks(desc jobgraph.JobDescription) (mrJob mapReduceJob, err error) {
 	mrNode := s.jobGraph.GetMapReduceNode(desc.JobNodeName, int(desc.MapReduceNodeIndex))
 	if mrNode == nil {
 		err = errors.New(fmt.Sprint("Cannot get mapReduceNode from job graph, job description is", desc))
 		return
 	}
 	mrJob.jobDesc = desc
-	fillTask := func(j *mapReduceJob, phase string) {
+	fillTask := func(job *mapReduceJob, phase string) {
 		var nTasks int
 		var batchSize int
-		jobDesc := j.jobDesc
+		jobDesc := job.jobDesc
 		switch phase {
 		case mapPhase:
-			batchSize = jobDesc.MapperBatchSize
 			nTasks = (jobDesc.MapperObjectSize + batchSize - 1) / batchSize
+			batchSize = jobDesc.MapperBatchSize
 		case reducePhase:
 			nTasks = jobDesc.ReducerNumber
 			batchSize = 1
@@ -88,16 +88,17 @@ func (s *Scheduler) ConvertToMapReduceJob(desc jobgraph.JobDescription) (mrJob m
 		for i := 0; i < nTasks; i++ {
 			tasks[i] = &task{
 				phase:    phase,
-				job:      j,
+				job:      job,
 				subIndex: i,
 			}
 		}
 
-		if phase == mapPhase {
-			j.mapTasks = tasks
-		} else if phase == reducePhase {
-			j.reduceTasks = tasks
-		} else {
+		switch phase {
+		case mapPhase:
+			job.mapTasks = tasks
+		case reducePhase:
+			job.reduceTasks = tasks
+		default:
 			//XXX: should not be here
 			log.Fatal("Unknown phase")
 		}
@@ -107,23 +108,23 @@ func (s *Scheduler) ConvertToMapReduceJob(desc jobgraph.JobDescription) (mrJob m
 	return
 }
 
-func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, reportFunc ReportFunction) {
+func (s *Scheduler) Schedule(visitor EventHandler) (requestFunc RequestFunction, reportFunc ReportFunction) {
 	jobResultChanMap := make(map[*mapReduceJob]<-chan int)
 	availableJobs := make([]*mapReduceJob, 0)
 	availableJobsLock := sync.Mutex{}
 	taskDescID := 0
 	/*
 		type ReportFunction func(task TaskDescription, state int)
-		type MapReduceJobVisitFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
+		type PushJobFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
 	*/
 	// PushJob Push a job to execute
 	pushJobFunc := func(jobDesc jobgraph.JobDescription) (state <-chan int) {
 		state = make(chan int, 1)
 
-		j, err := s.ConvertToMapReduceJob(jobDesc)
+		j, err := s.CreateMapReduceTasks(jobDesc)
 		if err != nil {
 			log.Fatal(err)
-		} //Which phase has been executing
+		}
 
 		availableJobsLock.Lock()
 		defer availableJobsLock.Unlock()
@@ -226,12 +227,12 @@ func (s *Scheduler) Schedule(visitor TaskVisitor) (requestFunc RequestFunction, 
 	return
 }
 
-func (s *Scheduler) MapReduceNodeSchedule(visitorFunc MapReduceJobVisitFunction, visitor TaskVisitor) {
+func (s *Scheduler) MapReduceNodeSchedule(pushJobFunc PushJobFunction, eventHandler EventHandler) {
 
 	waitForAll := &sync.WaitGroup{}
 	jobStatusMap := make(map[*jobgraph.JobNode]int)
 	mapsLock := sync.Mutex{}
-	changeJobNodeStatus := func(j *jobgraph.JobNode, status int) {
+	setJobNodeStatus := func(j *jobgraph.JobNode, status int) {
 		mapsLock.Lock()
 		defer mapsLock.Unlock()
 		jobStatusMap[j] = status
@@ -254,21 +255,19 @@ func (s *Scheduler) MapReduceNodeSchedule(visitorFunc MapReduceJobVisitFunction,
 			if jobDesc == nil {
 				log.Fatal("Failed to convert node ", jobDesc)
 			}
-			wait := visitorFunc(*jobDesc)
-			result := <-wait
-			if result == ResultOK {
-				err := visitor.MapReduceNodeSucceed(mrNode)
+			if result := <-pushJobFunc(*jobDesc); result == ResultOK {
+				err := eventHandler.MapReduceNodeSucceed(mrNode)
 				if err == nil {
 					idx++
 				} else {
 					log.Error(err)
 				}
 			} else {
-				err := visitor.MapReduceNodeFailed(mrNode)
+				err := eventHandler.MapReduceNodeFailed(mrNode)
 				log.Error("Map reduce node failed", err, *mrNode)
 			}
 		}
-		changeJobNodeStatus(node, StateCompleted)
+		setJobNodeStatus(node, StateCompleted)
 		for _, nextJobNode := range node.GetDependencyOf() {
 			allDepCompleted := true
 			for _, dep := range nextJobNode.GetDependencies() {
@@ -282,7 +281,7 @@ func (s *Scheduler) MapReduceNodeSchedule(visitorFunc MapReduceJobVisitFunction,
 			if statusEqualTo(nextJobNode, StateIdle) {
 				continue
 			}
-			changeJobNodeStatus(nextJobNode, StateInProgress)
+			setJobNodeStatus(nextJobNode, StateInProgress)
 			waitForAll.Add(1)
 			go topo(nextJobNode)
 		}
@@ -293,7 +292,7 @@ func (s *Scheduler) MapReduceNodeSchedule(visitorFunc MapReduceJobVisitFunction,
 		if len(n.GetDependencies()) != 0 {
 			continue
 		}
-		changeJobNodeStatus(n, StateInProgress)
+		setJobNodeStatus(n, StateInProgress)
 		waitForAll.Add(1)
 		go topo(n)
 	}
