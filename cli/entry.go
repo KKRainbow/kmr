@@ -67,6 +67,7 @@ func Run(job *jobgraph.Job) {
 	var conf *config.KMRConfig
 
 	var buckets []bucket.Bucket
+	var assetFolder string
 
 	app := cli.NewApp()
 	app.Name = job.GetName()
@@ -84,10 +85,42 @@ func Run(job *jobgraph.Job) {
 			Usage:  "Used to synchronize information between workers and master",
 			Hidden: true,
 		},
+		cli.StringFlag{
+			Name:  "asset-folder",
+			Value: "./assets",
+			Usage: "Files under asset folder will be packed into docker image. " +
+				"KMR APP can use this files as they are under './'",
+		},
 	}
 	app.Before = func(c *cli.Context) error {
 		conf = config.LoadConfigFromMultiFiles(repMap, append(config.GetConfigLoadOrder(), c.StringSlice("config")...)...)
 		job.ValidateGraph()
+
+		assetFolder, err = filepath.Abs(c.String("asset-folder"))
+		if err != nil {
+			return err
+		}
+		if f, err := os.Stat(assetFolder); err != nil || !f.IsDir() {
+			if os.IsNotExist(err) {
+				err := os.MkdirAll(assetFolder, 0777)
+				if err != nil {
+					return cli.NewMultiError(err)
+				}
+				originAfter := app.After
+				app.After = func(ctx *cli.Context) (err error) {
+					err = nil
+					if originAfter != nil {
+						err = originAfter(ctx)
+					}
+					os.RemoveAll(assetFolder)
+					return
+				}
+			} else {
+				return cli.NewExitError("Asset folder "+assetFolder+" is incorrect", 1)
+			}
+		}
+		log.Info("Asset folder is", assetFolder)
+
 		return nil
 	}
 
@@ -182,6 +215,7 @@ func Run(job *jobgraph.Job) {
 				} else {
 					buckets, err = loadBucketsFromLocal(conf.Local)
 					workerCtl = worker.NewLocalWorkerCtl(job, ctx.Int("port"), 64, buckets)
+					os.Chdir(assetFolder)
 				}
 
 				if ctx.Bool("listen-only") {
@@ -218,6 +252,7 @@ func Run(job *jobgraph.Job) {
 
 				if ctx.Bool("local") {
 					buckets,err = loadBucketsFromLocal(conf.Local)
+					os.Chdir(assetFolder)
 				} else {
 					buckets,err = loadBucketsFromRemote(conf.Remote)
 				}
@@ -247,34 +282,11 @@ func Run(job *jobgraph.Job) {
 				cli.StringSliceFlag{
 					Name: "image-tags",
 				},
-				cli.StringFlag{
-					Name:  "asset-folder",
-					Value: "./assets",
-					Usage: "Files under asset folder will be packed into docker image. " +
-						"KMR APP can use this files as they are under './'",
-				},
 			},
 			Usage: "Deploy KMR Application in k8s",
 			Action: func(ctx *cli.Context) error {
 				dockerWorkDir := "/kmrapp"
 				// collect files under current folder
-				assetFolder, err := filepath.Abs(ctx.String("asset-folder"))
-				if err != nil {
-					return err
-				}
-				if f, err := os.Stat(assetFolder); err != nil || !f.IsDir() {
-					if os.IsNotExist(err) {
-						err := os.MkdirAll(assetFolder, 0777)
-						if err != nil {
-							return cli.NewMultiError(err)
-						}
-						defer os.RemoveAll(assetFolder)
-					} else {
-						return cli.NewExitError("Asset folder "+assetFolder+" is incorrect", 1)
-					}
-				}
-				log.Info("Asset folder is", assetFolder)
-
 				configFilePath := path.Join(assetFolder, "internal-used-config.json")
 				executablePath := path.Join(assetFolder, "internal-used-executable")
 
