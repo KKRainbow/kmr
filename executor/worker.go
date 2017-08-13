@@ -158,8 +158,9 @@ func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, s
 	// Inputs Files
 	inputFiles := node.GetInputFiles().GetFiles()
 	readers := make([]records.RecordReader, 0)
-	for fidx := int(subIndex) * node.GetMapperBatchSize(); fidx < len(inputFiles); fidx++ {
+	for fidx := int(subIndex) * node.GetMapperBatchSize(); fidx < len(inputFiles) && fidx < int(subIndex+1)*node.GetMapperBatchSize(); fidx++ {
 		file := inputFiles[fidx]
+		log.Debug("Opening mapper input file", file)
 		reader, err := w.mapBucket.OpenRead(file)
 		if err != nil {
 			log.Fatalf("Fail to open object %s: %v", file, err)

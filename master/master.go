@@ -147,8 +147,8 @@ func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*km
 	s.master.heartbeat[in.WorkerID] = make(chan int, 10)
 	s.master.workerTaskMap[in.WorkerID] = t
 	go s.master.CheckHeartbeatForEachWorker(in.WorkerID, s.master.heartbeat[in.WorkerID])
-	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v to %v",
-		t.JobNodeName, t.MapReduceNodeIndex, t.Phase, in.WorkerID)
+	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v PhaseSubIndex: %v to %v",
+		t.JobNodeName, t.MapReduceNodeIndex, t.Phase, t.PhaseSubIndex, in.WorkerID)
 	return &kmrpb.Task{
 		Retcode: 0,
 		Taskinfo: &kmrpb.TaskInfo{
