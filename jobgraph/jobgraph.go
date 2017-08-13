@@ -152,8 +152,8 @@ func (n *JobNode) AddReducer(reducer mapred.Reducer, num int) *JobNode {
 
 func (n *JobNode) DependOn(nodes ...*JobNode) *JobNode {
 	n.dependencies = append(n.dependencies, nodes...)
-	for _, n := range nodes {
-		n.dependencyOf = append(n.dependencyOf, n)
+	for _, node := range nodes {
+		node.dependencyOf = append(node.dependencyOf, n)
 	}
 	return n
 }
@@ -202,7 +202,7 @@ func (j *Job) AddJobNode(inputs Files, name string) *JobNode {
 		index:           j.mrNodeIndex,
 		jobNode:         jobNode,
 		inputFiles:      inputs,
-		mapper:          IdentityMapper,
+		mapper:          nil,
 		mapperBatchSize: 0,
 	}
 	j.mrNodeIndex++

@@ -25,7 +25,7 @@ import (
 	"github.com/naturali/kmr/executor"
 )
 
-func loadBuckets(m, i, r *config.BucketDescription) ([]*bucket.Bucket, error) {
+func loadBuckets(m, i, r *config.BucketDescription) ([]bucket.Bucket, error) {
 	mapBucket, err := bucket.NewBucket(m.BucketType, m.Config)
 	if err != nil {
 		return nil, err
@@ -39,17 +39,17 @@ func loadBuckets(m, i, r *config.BucketDescription) ([]*bucket.Bucket, error) {
 		return nil, err
 	}
 
-	return []*bucket.Bucket{
-		&mapBucket, &interBucket, &reduceBucket,
+	return []bucket.Bucket{
+		mapBucket, interBucket, reduceBucket,
 	}, nil
 }
 
-func loadBucketsFromRemote(conf *config.RemoteConfig) ([]*bucket.Bucket, error) {
+func loadBucketsFromRemote(conf *config.RemoteConfig) ([]bucket.Bucket, error) {
 	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket)
 	return buckets, err
 }
 
-func loadBucketsFromLocal(conf *config.LocalConfig) ([]*bucket.Bucket, error) {
+func loadBucketsFromLocal(conf *config.LocalConfig) ([]bucket.Bucket, error) {
 	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket)
 	return buckets, err
 }
@@ -62,11 +62,11 @@ func Run(job *jobgraph.Job) {
 	var err error
 
 	repMap := map[string]string{
-		"JOBNAME": job.GetName(),
+		"${JOBNAME}": job.GetName(),
 	}
 	var conf *config.KMRConfig
 
-	var buckets []*bucket.Bucket
+	var buckets []bucket.Bucket
 
 	app := cli.NewApp()
 	app.Name = job.GetName()
@@ -181,7 +181,7 @@ func Run(job *jobgraph.Job) {
 					})
 				} else {
 					buckets, err = loadBucketsFromLocal(conf.Local)
-					workerCtl = worker.NewLocalWorkerCtl(job, ctx.Int("port"))
+					workerCtl = worker.NewLocalWorkerCtl(job, ctx.Int("port"), 64, buckets)
 				}
 
 				if ctx.Bool("listen-only") {
@@ -192,7 +192,8 @@ func Run(job *jobgraph.Job) {
 					workerCtl.StartWorkers(ctx.Int("worker-num"))
 				}
 
-				master.NewMaster(job, strconv.Itoa(ctx.Int("port")), buckets[0], buckets[1], buckets[2])
+				m := master.NewMaster(job, strconv.Itoa(ctx.Int("port")), buckets[0], buckets[1], buckets[2])
+				m.Run()
 				return nil
 			},
 		},
@@ -284,7 +285,7 @@ func Run(job *jobgraph.Job) {
 					return cli.NewExitError(executablePath+"should not exists", 1)
 				}
 
-				configJson, err := json.MarshalIndent(config, "", "\t")
+				configJson, err := json.MarshalIndent(conf, "", "\t")
 				if err != nil {
 					return err
 				}

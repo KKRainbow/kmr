@@ -25,6 +25,7 @@ const (
 
 // Master is a map-reduce controller. It stores the state for each task and other runtime progress statuses.
 type Master struct {
+	sync.Mutex
 	port string // Master listening port, like ":50051"
 
 	heartbeat     map[int64]chan int // Heartbeat channel for each worker
@@ -91,19 +92,14 @@ func (m *Master) CheckHeartbeatForEachWorker(workerID int64, heartbeat chan int)
 		case <-timeout:
 			// the worker fuck up, release the task
 			log.Error("Worker: ", workerID, "fuck up")
-			m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultFailed)
-			delete(m.workerTaskMap, workerID)
 			return
 		case heartbeatCode := <-heartbeat:
 			// the worker is doing his job
 			switch heartbeatCode {
 			case HeartBeatCodeDead:
 				log.Error("Worker: ", workerID, "fuck up")
-				m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultFailed)
-				delete(m.workerTaskMap, workerID)
 				return
 			case HeartBeatCodeFinished:
-				m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultOK)
 				return
 			case HeartBeatCodePulse:
 				continue
@@ -134,18 +130,27 @@ func (m *Master) Run() {
 }
 
 type server struct {
+	sync.Mutex
 	master *Master
 }
 
 // RequestTask is to deliver a task to worker.
 func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*kmrpb.Task, error) {
+	s.master.Lock()
+	defer s.master.Unlock()
 	t, err := s.master.scheduler.RequestTask()
+	if err != nil {
+		return &kmrpb.Task{
+			Retcode: -1,
+		}, err
+	}
 	s.master.heartbeat[in.WorkerID] = make(chan int, 10)
 	s.master.workerTaskMap[in.WorkerID] = t
 	go s.master.CheckHeartbeatForEachWorker(in.WorkerID, s.master.heartbeat[in.WorkerID])
-	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v", t.JobNodeName, t.MapReduceNodeIndex, t.Phase)
+	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v to %v",
+		t.JobNodeName, t.MapReduceNodeIndex, t.Phase, in.WorkerID)
 	return &kmrpb.Task{
-		Retcode: -1,
+		Retcode: 0,
 		Taskinfo: &kmrpb.TaskInfo{
 			JobNodeName:     t.JobNodeName,
 			MapredNodeIndex: t.MapReduceNodeIndex,
@@ -157,7 +162,11 @@ func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*km
 
 // ReportTask is for executor to report its progress state to master.
 func (s *server) ReportTask(ctx context.Context, in *kmrpb.ReportInfo) (*kmrpb.Response, error) {
-	if _, ok := s.master.workerTaskMap[in.WorkerID]; !ok {
+	s.master.Lock()
+	defer s.master.Unlock()
+	var t TaskDescription
+	var ok bool
+	if t, ok = s.master.workerTaskMap[in.WorkerID]; !ok {
 		log.Errorf("WorkerID %v is not working on anything", in.WorkerID)
 		return &kmrpb.Response{Retcode: 0}, nil
 	}
@@ -165,10 +174,14 @@ func (s *server) ReportTask(ctx context.Context, in *kmrpb.ReportInfo) (*kmrpb.R
 	var heartbeatCode int
 	switch in.Retcode {
 	case kmrpb.ReportInfo_FINISH:
+		s.master.scheduler.ReportTask(t, ResultOK)
+		delete(s.master.workerTaskMap, in.WorkerID)
 		heartbeatCode = HeartBeatCodeFinished
 	case kmrpb.ReportInfo_DOING:
 		heartbeatCode = HeartBeatCodePulse
 	case kmrpb.ReportInfo_ERROR:
+		s.master.scheduler.ReportTask(t, ResultFailed)
+		delete(s.master.workerTaskMap, in.WorkerID)
 		heartbeatCode = HeartBeatCodeDead
 	default:
 		panic("unknown ReportInfo")
@@ -181,7 +194,7 @@ func (s *server) ReportTask(ctx context.Context, in *kmrpb.ReportInfo) (*kmrpb.R
 }
 
 // NewMaster Create a master, waiting for workers
-func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBucket *bucket.Bucket) *Master {
+func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBucket bucket.Bucket) *Master {
 	m := &Master{
 		port:          port,
 		workerTaskMap: make(map[int64]TaskDescription),
