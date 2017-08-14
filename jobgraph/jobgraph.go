@@ -13,10 +13,11 @@ type MapReduceNode struct {
 	reducer mapred.Reducer
 	jobNode *JobNode
 
-	mapperBatchSize         int
-	reducerCount            int
-	interFiles              InterFileNameGenerator
-	inputFiles, outputFiles Files
+	mapperBatchSize int
+	reducerCount    int
+	interFiles      InterFileNameGenerator
+	inputFiles      Files
+	outputFiles     *fileNameGenerator
 
 	chainPrev, chainNext *MapReduceNode
 }
@@ -111,6 +112,8 @@ func (n *JobNode) AddMapper(mapper mapred.Mapper, batchSize int) *JobNode {
 		}
 		mrnode.interFiles.mrNode = mrnode
 		n.graph.mrNodeIndex++
+
+		n.endNode.outputFiles.bucketType = InterBucket
 		n.endNode.chainNext = mrnode
 		n.endNode = mrnode
 		n.graph.mrNodes = append(n.graph.mrNodes, mrnode)
@@ -138,6 +141,7 @@ func (n *JobNode) AddReducer(reducer mapred.Reducer, num int) *JobNode {
 		}
 		mrnode.interFiles.mrNode = mrnode
 		n.graph.mrNodeIndex++
+		n.endNode.outputFiles.bucketType = InterBucket
 		n.endNode.chainNext = mrnode
 		n.endNode = mrnode
 		n.graph.mrNodes = append(n.graph.mrNodes, mrnode)
@@ -149,7 +153,7 @@ func (n *JobNode) AddReducer(reducer mapred.Reducer, num int) *JobNode {
 			n.endNode.mapperBatchSize = 1
 		}
 	}
-	n.endNode.outputFiles = &fileNameGenerator{n.endNode, num}
+	n.endNode.outputFiles = &fileNameGenerator{n.endNode, num, ReduceBucket}
 	n.endNode.reducerCount = num
 	return n
 }
@@ -211,7 +215,7 @@ func (j *Job) AddJobNode(inputs Files, name string) *JobNode {
 	}
 	j.mrNodeIndex++
 
-	mrNode.outputFiles = &fileNameGenerator{mrNode, 0}
+	mrNode.outputFiles = &fileNameGenerator{mrNode, 0, ReduceBucket}
 	mrNode.interFiles.mrNode = mrNode
 
 	jobNode.startNode = mrNode

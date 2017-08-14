@@ -46,6 +46,19 @@ func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSiz
 	return &worker
 }
 
+func (w *Worker) getBucket(files jobgraph.Files) bucket.Bucket {
+	var bk bucket.Bucket
+	switch files.GetBucketType() {
+	case jobgraph.MapBucket:
+		bk = w.mapBucket
+	case jobgraph.ReduceBucket:
+		bk = w.reduceBucket
+	case jobgraph.InterBucket:
+		bk = w.interBucket
+	}
+	return bk
+}
+
 func (w *Worker) Run() {
 	//Here we must know the master address
 	var retcode kmrpb.ReportInfo_ErrorCode
@@ -137,13 +150,7 @@ func (w *Worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, 
 	}
 
 	outputFile := node.GetOutputFiles().GetFiles()[subIndex]
-	var bk bucket.Bucket
-	if node.IsEndNode() {
-		bk = w.interBucket
-	} else {
-		bk = w.reduceBucket
-	}
-	writer, err := bk.OpenWrite(outputFile)
+	writer, err := w.getBucket(node.GetOutputFiles()).OpenWrite(outputFile)
 	if err != nil {
 		log.Fatalf("Failed to open intermediate: %v", err)
 	}
@@ -161,7 +168,7 @@ func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, s
 	for fidx := int(subIndex) * node.GetMapperBatchSize(); fidx < len(inputFiles) && fidx < int(subIndex+1)*node.GetMapperBatchSize(); fidx++ {
 		file := inputFiles[fidx]
 		log.Debug("Opening mapper input file", file)
-		reader, err := w.mapBucket.OpenRead(file)
+		reader, err := w.getBucket(node.GetInputFiles()).OpenRead(file)
 		if err != nil {
 			log.Fatalf("Fail to open object %s: %v", file, err)
 		}

@@ -230,6 +230,10 @@ func Run(job *jobgraph.Job) {
 
 				m := master.NewMaster(job, strconv.Itoa(ctx.Int("port")), buckets[0], buckets[1], buckets[2])
 				m.Run()
+
+				if workerCtl != nil {
+					workerCtl.StopWorkers()
+				}
 				return nil
 			},
 		},
