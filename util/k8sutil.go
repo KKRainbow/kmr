@@ -1,27 +1,28 @@
 package util
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/pkg/api/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"encoding/json"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"github.com/naturali/kmr/util/log"
 	"os/exec"
 	"path"
 	"path/filepath"
+
 	"github.com/naturali/kmr/config"
+	"github.com/naturali/kmr/util/log"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/pkg/api/v1"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 type PodDescription struct {
 	Volumes      *[]map[string]interface{} `json:"volumes,omitempty" patchStrategy:"merge"`
 	VolumeMounts *[]map[string]interface{} `json:"volumeMounts,omitempty" patchStrategy:"merge" patchMergeKey:"mountPath"`
 }
-
 
 func CreateDockerImage(assetFolder, registry string, tags []string, includeFiles []string, workDir string) (string, error) {
 	df := path.Join(assetFolder, "Dockerfile")
@@ -52,7 +53,7 @@ func CreateDockerImage(assetFolder, registry string, tags []string, includeFiles
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
-	if  err != nil {
+	if err != nil {
 		return "", err
 	}
 	log.Info("Pushing tags:")
@@ -62,15 +63,15 @@ func CreateDockerImage(assetFolder, registry string, tags []string, includeFiles
 		cmd.Stdin = os.Stdin
 		cmd.Stderr = os.Stderr
 		err = cmd.Run()
-		if  err != nil {
+		if err != nil {
 			return "", err
 		}
 	}
 	return tags[0], nil
 }
 
-func CreateK8sKMRJob(jobName , serviceAccountName , namespace string, podDesc config.PodDescription,
-	dockerImage , workDir string, command []string, port int32) (string, string, error) {
+func CreateK8sKMRJob(jobName, serviceAccountName, namespace string, podDesc config.PodDescription,
+	dockerImage, workDir string, command []string, port int32) (string, string, error) {
 	var volumes []v1.Volume
 	var volumeMounts []v1.VolumeMount
 
@@ -84,24 +85,24 @@ func CreateK8sKMRJob(jobName , serviceAccountName , namespace string, podDesc co
 		json.Unmarshal(jsonStr, &volumeMounts)
 	}
 
-	pod := v1.Pod {
-		TypeMeta:metav1.TypeMeta{
-			Kind: "Pod",
+	pod := v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
 			Labels: map[string]string{
 				"kmr.jobname": jobName,
-				"app": "kmr-master",
+				"app":         "kmr-master",
 			},
 		},
 		Spec: v1.PodSpec{
 			ServiceAccountName: serviceAccountName,
-			RestartPolicy: "Never",
-			Containers: []v1.Container {
+			RestartPolicy:      "Never",
+			Containers: []v1.Container{
 				{
-					Name: jobName + "-master",
+					Name:  jobName + "-master",
 					Image: dockerImage,
 					Ports: []v1.ContainerPort{
 						{
@@ -109,40 +110,40 @@ func CreateK8sKMRJob(jobName , serviceAccountName , namespace string, podDesc co
 						},
 					},
 					VolumeMounts: volumeMounts,
-					WorkingDir: workDir,
-					Command: command,
+					WorkingDir:   workDir,
+					Command:      command,
 				},
 			},
 			Volumes: volumes,
 		},
 	}
-	service := v1.Service {
-		TypeMeta:metav1.TypeMeta{
-			Kind: "Pod",
+	service := v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Pod",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: jobName,
 			Labels: map[string]string{
 				"kmr.jobname": jobName,
-				"app": "kmr-master",
+				"app":         "kmr-master",
 			},
 		},
 		Spec: v1.ServiceSpec{
 			Type: v1.ServiceType("NodePort"),
 			Ports: []v1.ServicePort{
 				{
-					Port: port,
+					Port:       port,
 					TargetPort: intstr.FromInt(int(port)),
 				},
 			},
-			Selector: map[string]string {
+			Selector: map[string]string{
 				"kmr.jobname": jobName,
 			},
 		},
 	}
 	k8sConfig, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
-	if err != nil || k8sConfig == nil{
+	if err != nil || k8sConfig == nil {
 		return "", "", err
 	}
 	clientConfig := clientcmd.NewDefaultClientConfig(*k8sConfig, &clientcmd.ConfigOverrides{})
@@ -155,7 +156,7 @@ func CreateK8sKMRJob(jobName , serviceAccountName , namespace string, podDesc co
 		return "", "", err
 	}
 	falseVal := false
-	k8sclient.ReplicaSets(namespace).Delete(jobName + "-mr", &metav1.DeleteOptions{
+	k8sclient.ReplicaSets(namespace).Delete(jobName+"-mr", &metav1.DeleteOptions{
 		OrphanDependents: &falseVal,
 	})
 	k8sclient.Pods(namespace).Delete(pod.Name, &metav1.DeleteOptions{})

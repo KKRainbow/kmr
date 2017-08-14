@@ -1,28 +1,30 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/naturali/kmr/config"
-	"github.com/naturali/kmr/jobgraph"
-	"github.com/urfave/cli"
 	"io/ioutil"
-	"k8s.io/client-go/rest"
+	"math/rand"
+	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	"github.com/naturali/kmr/worker"
-	"path"
-	"github.com/naturali/kmr/util/log"
-	"encoding/json"
-	"errors"
-	"github.com/naturali/kmr/util"
-	"math/rand"
+
 	"github.com/naturali/kmr/bucket"
-	"net"
-	"github.com/naturali/kmr/master"
+	"github.com/naturali/kmr/config"
 	"github.com/naturali/kmr/executor"
+	"github.com/naturali/kmr/jobgraph"
+	"github.com/naturali/kmr/master"
+	"github.com/naturali/kmr/util"
+	"github.com/naturali/kmr/util/log"
+	"github.com/naturali/kmr/worker"
+
+	"github.com/urfave/cli"
+	"k8s.io/client-go/rest"
 )
 
 func loadBuckets(m, i, r *config.BucketDescription) ([]bucket.Bucket, error) {
@@ -167,7 +169,7 @@ func Run(job *jobgraph.Job) {
 				seed := ctx.GlobalInt64("random-seed")
 				if ctx.Bool("remote") {
 					var err error
-					buckets,err = loadBucketsFromRemote(conf.Remote)
+					buckets, err = loadBucketsFromRemote(conf.Remote)
 
 					var k8sconfig *rest.Config
 
@@ -251,12 +253,12 @@ func Run(job *jobgraph.Job) {
 				workerID := rand.Int63()
 
 				if ctx.Bool("local") {
-					buckets,err = loadBucketsFromLocal(conf.Local)
+					buckets, err = loadBucketsFromLocal(conf.Local)
 					os.Chdir(assetFolder)
 				} else {
-					buckets,err = loadBucketsFromRemote(conf.Remote)
+					buckets, err = loadBucketsFromRemote(conf.Remote)
 				}
-				w := executor.NewWorker(job, workerID, ctx.String("master-addr"), 64, buckets[0],buckets[1], buckets[2])
+				w := executor.NewWorker(job, workerID, ctx.String("master-addr"), 64, buckets[0], buckets[1], buckets[2])
 				w.Run()
 				return nil
 			},

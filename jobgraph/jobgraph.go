@@ -144,6 +144,10 @@ func (n *JobNode) AddReducer(reducer mapred.Reducer, num int) *JobNode {
 	} else {
 		//use origin
 		n.endNode.reducer = reducer
+		if n.endNode.mapper == nil {
+			n.endNode.mapper = IdentityMapper
+			n.endNode.mapperBatchSize = 1
+		}
 	}
 	n.endNode.outputFiles = &fileNameGenerator{n.endNode, num}
 	n.endNode.reducerCount = num
@@ -303,7 +307,7 @@ func (j *Job) GetMapReduceNode(jobNodeName string, mapredIndex int) *MapReduceNo
 
 func (j *Job) SetName(name string) {
 	for _, c := range []rune(name) {
-		if !unicode.IsLower(c) || c == rune('-') {
+		if !unicode.IsLower(c) && c != rune('-') {
 			log.Fatal("Job name should only contain lowercase and '-'")
 		}
 	}
