@@ -97,6 +97,7 @@ func (m *Master) CheckHeartbeatForEachWorker(workerID int64, heartbeat chan hear
 		case <-timeout:
 			// the worker fuck up, release the task
 			log.Error("Worker: ", workerID, "fuck up")
+			m.scheduler.ReportTask(m.workerTaskMap[workerID], ResultFailed)
 			return
 		case hb := <-heartbeat:
 			// the worker is doing his job
