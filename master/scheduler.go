@@ -22,8 +22,8 @@ type RequestFunction func() (TaskDescription, error)
 type PushJobFunction func(jobDesc jobgraph.JobDescription) (state <-chan int)
 
 type EventHandler interface {
-	TaskSucceeded(jobDesc *jobgraph.JobDescription) error
-	TaskFailed(jobDesc *jobgraph.JobDescription) error
+	TaskSucceeded(jobDesc TaskDescription) error
+	TaskFailed(jobDesc TaskDescription) error
 	MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error
 	MapReduceNodeFailed(node *jobgraph.MapReduceNode) error
 	JobNodeSucceeded(node *jobgraph.JobNode) error

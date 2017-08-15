@@ -43,11 +43,11 @@ type Master struct {
 	waitFinish                           sync.WaitGroup
 }
 
-func (m *Master) TaskSucceeded(jobDesc *jobgraph.JobDescription) error {
+func (m *Master) TaskSucceeded(t TaskDescription) error {
 	return nil
 }
 
-func (m *Master) TaskFailed(jobDesc *jobgraph.JobDescription) error {
+func (m *Master) TaskFailed(t TaskDescription) error {
 	return nil
 }
 

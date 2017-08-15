@@ -94,6 +94,7 @@ func CreateK8sKMRJob(jobName, serviceAccountName, namespace string, podDesc conf
 			Name: jobName,
 			Labels: map[string]string{
 				"kmr.jobname": jobName,
+				"kmr.master" : jobName + "-master",
 				"app":         "kmr-master",
 			},
 		},
@@ -138,7 +139,7 @@ func CreateK8sKMRJob(jobName, serviceAccountName, namespace string, podDesc conf
 				},
 			},
 			Selector: map[string]string{
-				"kmr.jobname": jobName,
+				"kmr.master" : jobName + "-master",
 			},
 		},
 	}
