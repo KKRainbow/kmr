@@ -51,6 +51,19 @@ func (m *Master) TaskFailed(jobDesc *jobgraph.JobDescription) error {
 	return nil
 }
 
+func (m *Master) getBucket(files jobgraph.Files) bucket.Bucket {
+	var bk bucket.Bucket
+	switch files.GetBucketType() {
+	case jobgraph.MapBucket:
+		bk = m.mapBucket
+	case jobgraph.ReduceBucket:
+		bk = m.reduceBucket
+	case jobgraph.InterBucket:
+		bk = m.interBucket
+	}
+	return bk
+}
+
 func (m *Master) MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error {
 	// Delete inter files
 	for mapperIdx := 0; mapperIdx < node.GetMapperNum(); mapperIdx++ {
@@ -61,7 +74,7 @@ func (m *Master) MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error {
 	// Delete previous node output files
 	if p := node.GetPrev(); p != nil {
 		for _, file := range p.GetOutputFiles().GetFiles() {
-			m.reduceBucket.Delete(file)
+			m.getBucket(p.GetOutputFiles()).Delete(file)
 		}
 	}
 	return nil

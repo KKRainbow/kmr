@@ -37,32 +37,34 @@ func (cw *ComputeWrapClass) BindReducer(reducer mapred.Reducer) {
 
 func (cw *ComputeWrapClass) BindCombiner(combiner mapred.Reducer) {
 	// XXX: should use reducer directly
-	cw.combineFunc = func(key []byte, v1 []byte, v2 []byte) []byte {
-		res := make([]byte, 0)
-		counter := 0
-		nextIter := &ValueIteratorFunc{
-			IterFunc: func() (interface{}, error) {
-				if counter == 0 {
-					counter++
-					return cw.reducer.GetInputValueTypeConverter().FromBytes(v1), nil
-				} else if counter == 1 {
-					counter++
-					return cw.reducer.GetInputValueTypeConverter().FromBytes(v2), nil
-				}
-				return nil, errors.New(mapred.ErrorNoMoreKey)
-			},
-		}
-		alreadyOutput := false
-		collectFunc := func(v interface{}) {
-			if alreadyOutput {
-				log.Errorf("value of key: %v has been collected", key)
-				return
+	if combiner != nil {
+		cw.combineFunc = func(key []byte, v1 []byte, v2 []byte) []byte {
+			res := make([]byte, 0)
+			counter := 0
+			nextIter := &ValueIteratorFunc{
+				IterFunc: func() (interface{}, error) {
+					if counter == 0 {
+						counter++
+						return cw.reducer.GetInputValueTypeConverter().FromBytes(v1), nil
+					} else if counter == 1 {
+						counter++
+						return cw.reducer.GetInputValueTypeConverter().FromBytes(v2), nil
+					}
+					return nil, errors.New(mapred.ErrorNoMoreKey)
+				},
 			}
-			res = cw.reducer.GetOutputValueTypeConverter().ToBytes(v)
-			alreadyOutput = true
+			alreadyOutput := false
+			collectFunc := func(v interface{}) {
+				if alreadyOutput {
+					log.Errorf("value of key: %v has been collected", key)
+					return
+				}
+				res = cw.reducer.GetOutputValueTypeConverter().ToBytes(v)
+				alreadyOutput = true
+			}
+			cw.reducer.Reduce(cw.reducer.GetInputKeyTypeConverter().FromBytes(key), nextIter, collectFunc, nil)
+			return res
 		}
-		cw.reducer.Reduce(cw.reducer.GetInputKeyTypeConverter().FromBytes(key), nextIter, collectFunc, nil)
-		return res
 	}
 }
 

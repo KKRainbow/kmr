@@ -8,10 +8,11 @@ import (
 )
 
 type MapReduceNode struct {
-	index   int
-	mapper  mapred.Mapper
-	reducer mapred.Reducer
-	jobNode *JobNode
+	index    int
+	mapper   mapred.Mapper
+	reducer  mapred.Reducer
+	combiner mapred.Reducer
+	jobNode  *JobNode
 
 	mapperBatchSize int
 	reducerCount    int
@@ -59,6 +60,10 @@ func (node *MapReduceNode) GetInputFiles() Files {
 
 func (node *MapReduceNode) GetOutputFiles() Files {
 	return node.outputFiles
+}
+
+func (node *MapReduceNode) GetCombiner() mapred.Reducer {
+	return node.combiner
 }
 
 func (node *MapReduceNode) GetInterFileNameGenerator() *InterFileNameGenerator {
@@ -155,6 +160,11 @@ func (n *JobNode) AddReducer(reducer mapred.Reducer, num int) *JobNode {
 	}
 	n.endNode.outputFiles = &fileNameGenerator{n.endNode, num, ReduceBucket}
 	n.endNode.reducerCount = num
+	return n
+}
+
+func (n *JobNode) SetCombiner(combiner mapred.Reducer) *JobNode {
+	n.endNode.combiner = combiner
 	return n
 }
 

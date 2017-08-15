@@ -124,6 +124,7 @@ func (w *Worker) executeTask(task *kmrpb.TaskInfo) (err error) {
 	}
 	cw.BindMapper(mapredNode.GetMapper())
 	cw.BindReducer(mapredNode.GetReducer())
+	cw.BindCombiner(mapredNode.GetCombiner())
 	switch task.Phase {
 	case mapPhase:
 		w.runMapper(cw, mapredNode, task.SubIndex)
