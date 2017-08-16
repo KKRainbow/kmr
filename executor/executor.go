@@ -36,7 +36,7 @@ func (cw *ComputeWrapClass) BindReducer(reducer mapred.Reducer) {
 }
 
 func (cw *ComputeWrapClass) BindCombiner(combiner mapred.Reducer) {
-	// XXX: should use reducer directly
+	// TODO: should use reducer directly
 	if combiner != nil {
 		cw.combineFunc = func(key []byte, v1 []byte, v2 []byte) []byte {
 			var res []byte

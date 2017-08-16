@@ -52,16 +52,15 @@ func (m *Master) TaskFailed(t TaskDescription) error {
 }
 
 func (m *Master) getBucket(files jobgraph.Files) bucket.Bucket {
-	var bk bucket.Bucket
 	switch files.GetBucketType() {
 	case jobgraph.MapBucket:
-		bk = m.mapBucket
+		return m.mapBucket
 	case jobgraph.ReduceBucket:
-		bk = m.reduceBucket
+		return m.reduceBucket
 	case jobgraph.InterBucket:
-		bk = m.interBucket
+		return m.interBucket
 	}
-	return bk
+	return nil
 }
 
 func (m *Master) MapReduceNodeSucceed(node *jobgraph.MapReduceNode) error {

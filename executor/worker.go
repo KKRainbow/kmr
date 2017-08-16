@@ -47,16 +47,15 @@ func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSiz
 }
 
 func (w *Worker) getBucket(files jobgraph.Files) bucket.Bucket {
-	var bk bucket.Bucket
 	switch files.GetBucketType() {
 	case jobgraph.MapBucket:
-		bk = w.mapBucket
+		return w.mapBucket
 	case jobgraph.ReduceBucket:
-		bk = w.reduceBucket
+		return w.reduceBucket
 	case jobgraph.InterBucket:
-		bk = w.interBucket
+		return w.interBucket
 	}
-	return bk
+	return nil
 }
 
 func (w *Worker) Run() {
