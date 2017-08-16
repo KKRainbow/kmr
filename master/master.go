@@ -35,6 +35,7 @@ type Master struct {
 
 	heartbeat     map[int64]chan heartBeatInput // Heartbeat channel for each worker
 	workerTaskMap map[int64]TaskDescription
+	workerNameMap map[int64]string
 
 	job       *jobgraph.Job
 	scheduler Scheduler
@@ -165,13 +166,14 @@ func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*km
 			Retcode: -1,
 		}, err
 	}
+	s.master.workerNameMap[in.WorkerID] = in.WorkerName
 	if _, ok := s.master.heartbeat[in.WorkerID]; !ok {
 		s.master.heartbeat[in.WorkerID] = make(chan heartBeatInput, 10)
 	}
 	s.master.workerTaskMap[in.WorkerID] = t
 	go s.master.CheckHeartbeatForEachWorker(in.WorkerID, s.master.heartbeat[in.WorkerID])
-	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v PhaseSubIndex: %v to %v",
-		t.JobNodeName, t.MapReduceNodeIndex, t.Phase, t.PhaseSubIndex, in.WorkerID)
+	log.Infof("deliver a task Jobname: %v MapredNodeID: %v Phase: %v PhaseSubIndex: %v to %v:%v",
+		t.JobNodeName, t.MapReduceNodeIndex, t.Phase, t.PhaseSubIndex, in.WorkerID, in.WorkerName)
 	return &kmrpb.Task{
 		Retcode: 0,
 		Taskinfo: &kmrpb.TaskInfo{

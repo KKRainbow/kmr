@@ -16,6 +16,7 @@ import (
 
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"os"
 )
 
 // XXX this should be unified with master.map/reducePhase
@@ -30,6 +31,7 @@ type Worker struct {
 	workerID                             int64
 	flushOutSize                         int
 	masterAddr                           string
+	hostName                             string
 }
 
 // NewWorker create a worker
@@ -42,6 +44,9 @@ func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSiz
 		reduceBucket: reduceBucket,
 		workerID:     workerID,
 		flushOutSize: flushOutSize,
+	}
+	if hn, err := os.Hostname(); err == nil {
+		worker.hostName = hn
 	}
 	return &worker
 }
@@ -69,8 +74,9 @@ func (w *Worker) Run() {
 	masterClient := kmrpb.NewMasterClient(cc)
 	for {
 		task, err := masterClient.RequestTask(context.Background(), &kmrpb.RegisterParams{
-			JobName:  w.job.GetName(),
-			WorkerID: w.workerID,
+			JobName:    w.job.GetName(),
+			WorkerID:   w.workerID,
+			WorkerName: w.hostName,
 		})
 		if err != nil || task.Retcode != 0 {
 			log.Error(err)
