@@ -26,22 +26,23 @@ const (
 )
 
 type Worker struct {
-	job                                  *jobgraph.Job
-	mapBucket, interBucket, reduceBucket bucket.Bucket
-	workerID                             int64
-	flushOutSize                         int
-	masterAddr                           string
-	hostName                             string
+	job                                               *jobgraph.Job
+	mapBucket, interBucket, reduceBucket, flushBucket bucket.Bucket
+	workerID                                          int64
+	flushOutSize                                      int
+	masterAddr                                        string
+	hostName                                          string
 }
 
 // NewWorker create a worker
-func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSize int, mapBucket, interBucket, reduceBucket bucket.Bucket) *Worker {
+func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSize int, mapBucket, interBucket, reduceBucket, flushBucket bucket.Bucket) *Worker {
 	worker := Worker{
 		job:          job,
 		masterAddr:   masterAddr,
 		mapBucket:    mapBucket,
 		interBucket:  interBucket,
 		reduceBucket: reduceBucket,
+		flushBucket:  flushBucket,
 		workerID:     workerID,
 		flushOutSize: flushOutSize,
 	}
@@ -85,7 +86,7 @@ func (w *Worker) Run() {
 			continue
 		}
 		taskInfo := task.Taskinfo
-		timer := time.NewTicker(master.HeartBeatTimeout / 2)
+		timer := time.NewTicker(master.HeartBeatTimeout / 3)
 		go func() {
 			for range timer.C {
 				// SendHeartBeat
@@ -97,7 +98,7 @@ func (w *Worker) Run() {
 			}
 		}()
 
-		w.executeTask(taskInfo)
+		//w.executeTask(taskInfo)
 
 		retcode = kmrpb.ReportInfo_FINISH
 		if err != nil {
@@ -201,7 +202,7 @@ func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, s
 		writers = append(writers, recordWriter)
 	}
 
-	cw.DoMap(batchReader, writers, w.interBucket, w.flushOutSize, node.GetIndex(), node.GetReducerNum(), w.workerID)
+	cw.DoMap(batchReader, writers, w.flushBucket, w.flushOutSize, node.GetIndex(), node.GetReducerNum(), w.workerID)
 
 	//master should delete intermediate files
 	for _, reader := range readers {

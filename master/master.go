@@ -20,7 +20,7 @@ const (
 	HeartBeatCodeDead
 	HeartBeatCodeFinished
 
-	HeartBeatTimeout = 20 * time.Second
+	HeartBeatTimeout = 120 * time.Second
 )
 
 type heartBeatInput struct {
@@ -222,6 +222,7 @@ func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBuc
 		port:          port,
 		workerTaskMap: make(map[int64]TaskDescription),
 		heartbeat:     make(map[int64]chan heartBeatInput),
+		workerNameMap: make(map[int64]string),
 		job:           job,
 		mapBucket:     mapBucket,
 		interBucket:   interBucket,

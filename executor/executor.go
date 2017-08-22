@@ -80,6 +80,8 @@ func (cw *ComputeWrapClass) sortAndCombine(aggregated []*records.Record) []*reco
 	if cw.combineFunc == nil {
 		return aggregated
 	}
+
+
 	combined := make([]*records.Record, 0)
 	var curRecord *records.Record
 	for _, r := range aggregated {
@@ -99,11 +101,12 @@ func (cw *ComputeWrapClass) sortAndCombine(aggregated []*records.Record) []*reco
 	if curRecord != nil && curRecord.Key != nil {
 		combined = append(combined, curRecord)
 	}
+
 	return combined
 }
 
 func (cw *ComputeWrapClass) DoMap(rr records.RecordReader, writers []records.RecordWriter, flushBucket bucket.Bucket, flushSize int, mapID int, nReduce int, workerID int64) (err error) {
-	maxNumConcurrentFlush := 2
+	maxNumConcurrentFlush := 8
 	startTime := time.Now()
 	aggregated := make([]*records.Record, 0)
 	flushOutFiles := make([]string, 0)

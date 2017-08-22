@@ -59,6 +59,5 @@ func main() {
 			}
 			break
 		}
-		fmt.Println(string(r.Key), string(r.Value))
 	}
 }

@@ -27,7 +27,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func loadBuckets(m, i, r *config.BucketDescription) ([]bucket.Bucket, error) {
+func loadBuckets(m, i, r, f *config.BucketDescription) ([]bucket.Bucket, error) {
 	mapBucket, err := bucket.NewBucket(m.BucketType, m.Config)
 	if err != nil {
 		return nil, err
@@ -40,19 +40,23 @@ func loadBuckets(m, i, r *config.BucketDescription) ([]bucket.Bucket, error) {
 	if err != nil {
 		return nil, err
 	}
+	flushBucket, err := bucket.NewBucket(f.BucketType, f.Config)
+	if err != nil {
+		return nil, err
+	}
 
 	return []bucket.Bucket{
-		mapBucket, interBucket, reduceBucket,
+		mapBucket, interBucket, reduceBucket, flushBucket,
 	}, nil
 }
 
 func loadBucketsFromRemote(conf *config.RemoteConfig) ([]bucket.Bucket, error) {
-	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket)
+	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket, conf.FlushBucket)
 	return buckets, err
 }
 
 func loadBucketsFromLocal(conf *config.LocalConfig) ([]bucket.Bucket, error) {
-	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket)
+	buckets, err := loadBuckets(conf.MapBucket, conf.InterBucket, conf.ReduceBucket, conf.FlushBucket)
 	return buckets, err
 }
 
@@ -150,7 +154,7 @@ func Run(job *jobgraph.Job) {
 				},
 				cli.IntFlag{
 					Name:  "cpu-limit",
-					Value: 1,
+					Value: 2,
 					Usage: "Define worker cpu limit when run in k8s",
 				},
 				cli.StringFlag{
@@ -199,7 +203,7 @@ func Run(job *jobgraph.Job) {
 					}
 					workerCtl = worker.NewK8sWorkerCtl(&worker.K8sWorkerConfig{
 						Name:         job.GetName(),
-						CPULimit:     "1",
+						CPULimit:     fmt.Sprint(ctx.Int("cpu-limit")),
 						Namespace:    *conf.Remote.Namespace,
 						K8sConfig:    *k8sconfig,
 						WorkerNum:    ctx.Int("worker-num"),
@@ -262,7 +266,7 @@ func Run(job *jobgraph.Job) {
 				} else {
 					buckets, err = loadBucketsFromRemote(conf.Remote)
 				}
-				w := executor.NewWorker(job, workerID, ctx.String("master-addr"), 64, buckets[0], buckets[1], buckets[2])
+				w := executor.NewWorker(job, workerID, ctx.String("master-addr"), 64, buckets[0], buckets[1], buckets[2], buckets[3])
 				w.Run()
 				return nil
 			},
@@ -282,7 +286,7 @@ func Run(job *jobgraph.Job) {
 				},
 				cli.IntFlag{
 					Name:  "cpu-limit",
-					Value: 1,
+					Value: 2,
 					Usage: "Define worker cpu limit when run in k8s",
 				},
 				cli.StringSliceFlag{
