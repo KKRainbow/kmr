@@ -167,6 +167,15 @@ func Run(job *jobgraph.Job) {
 					Usage:  "k8s service name used in remote mode",
 					Hidden: true,
 				},
+				cli.StringFlag{
+					Name: "check-point",
+					Usage: "Assign a check point file, which should be in map bucket",
+					Value: "checkpoint",
+				},
+				cli.BoolFlag{
+					Name: "fresh-run",
+					Usage: "delete old check point and rerun",
+				},
 			},
 			Action: func(ctx *cli.Context) error {
 				var workerCtl worker.WorkerCtl
@@ -232,7 +241,16 @@ func Run(job *jobgraph.Job) {
 					workerCtl.StartWorkers(ctx.Int("worker-num"))
 				}
 
-				m := master.NewMaster(job, strconv.Itoa(ctx.Int("port")), buckets[0], buckets[1], buckets[2])
+				if ctx.Bool("fresh-run") {
+					buckets[2].Delete(ctx.String("check-point"))
+				}
+				ck, err := master.OpenCheckPoint(buckets[2], ctx.String("check-point"))
+				if err != nil {
+					ck = nil
+					log.Error(err)
+				}
+				m := master.NewMaster(job, strconv.Itoa(ctx.Int("port")), buckets[0], buckets[1], buckets[2], ck)
+
 				m.Run()
 
 				if workerCtl != nil {
@@ -292,6 +310,15 @@ func Run(job *jobgraph.Job) {
 				cli.StringSliceFlag{
 					Name: "image-tags",
 				},
+				cli.StringFlag{
+					Name: "check-point",
+					Usage: "Assign a check point file, which should be in map bucket",
+					Value: "checkpoint",
+				},
+				cli.BoolFlag{
+					Name: "fresh-run",
+					Usage: "delete old check point and rerun",
+				},
 			},
 			Usage: "Deploy KMR Application in k8s",
 			Action: func(ctx *cli.Context) error {
@@ -342,18 +369,23 @@ func Run(job *jobgraph.Job) {
 					return err
 				}
 
+				commands := []string{dockerWorkDir + "/internal-used-executable", "--config", dockerWorkDir + "/internal-used-config.json",
+							 "master",
+							 "--remote", "--port", fmt.Sprint(ctx.Int("port")),
+							 "--worker-num", fmt.Sprint(ctx.Int("worker-num")),
+							 "--cpu-limit", fmt.Sprint(ctx.Int("cpu-limit")),
+							 "--image-name", imageName,
+							 "--service-name", job.GetName(),
+							 "--check-point", ctx.String("check-point"),
+				}
+				if ctx.Bool("fresh-run") {
+					commands = append(commands, "--fresh-run")
+				}
 				pod, service, err := util.CreateK8sKMRJob(job.GetName(),
 					*conf.Remote.ServiceAccount,
 					*conf.Remote.Namespace,
 					*conf.Remote.PodDesc, imageName, dockerWorkDir,
-					[]string{dockerWorkDir + "/internal-used-executable", "--config", dockerWorkDir + "/internal-used-config.json",
-						"master",
-						"--remote", "--port", fmt.Sprint(ctx.Int("port")),
-						"--worker-num", fmt.Sprint(ctx.Int("worker-num")),
-						"--cpu-limit", fmt.Sprint(ctx.Int("cpu-limit")),
-						"--image-name", imageName,
-						"--service-name", job.GetName(),
-					},
+					commands,
 					int32(ctx.Int("port")))
 
 				if err != nil {

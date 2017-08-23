@@ -98,7 +98,7 @@ func (w *Worker) Run() {
 			}
 		}()
 
-		//w.executeTask(taskInfo)
+		w.executeTask(taskInfo)
 
 		retcode = kmrpb.ReportInfo_FINISH
 		if err != nil {

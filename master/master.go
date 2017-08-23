@@ -42,9 +42,14 @@ type Master struct {
 
 	mapBucket, interBucket, reduceBucket bucket.Bucket
 	waitFinish                           sync.WaitGroup
+
+	ck *CheckPoint
 }
 
 func (m *Master) TaskSucceeded(t TaskDescription) error {
+	if m.ck != nil {
+		m.ck.AddCompletedJob(t)
+	}
 	return nil
 }
 
@@ -160,12 +165,26 @@ type server struct {
 func (s *server) RequestTask(ctx context.Context, in *kmrpb.RegisterParams) (*kmrpb.Task, error) {
 	s.master.Lock()
 	defer s.master.Unlock()
-	t, err := s.master.scheduler.RequestTask()
-	if err != nil {
-		return &kmrpb.Task{
-			Retcode: -1,
-		}, err
+	var t TaskDescription
+	var err error
+
+	for {
+		t, err = s.master.scheduler.RequestTask()
+		if err != nil {
+			return &kmrpb.Task{
+				Retcode: -1,
+			}, err
+		}
+		if s.master.ck != nil && s.master.ck.IsJobCompleted(t) {
+			log.Info("Job", t, "had been finished according to checkpoint")
+			go func(taskDesc TaskDescription) {
+				s.master.scheduler.ReportTask(taskDesc, ResultOK)
+			}(t)
+		} else {
+			break
+		}
 	}
+
 	s.master.workerNameMap[in.WorkerID] = in.WorkerName
 	if _, ok := s.master.heartbeat[in.WorkerID]; !ok {
 		s.master.heartbeat[in.WorkerID] = make(chan heartBeatInput, 10)
@@ -217,7 +236,7 @@ func (s *server) ReportTask(ctx context.Context, in *kmrpb.ReportInfo) (*kmrpb.R
 }
 
 // NewMaster Create a master, waiting for workers
-func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBucket bucket.Bucket) *Master {
+func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBucket bucket.Bucket, ck *CheckPoint) *Master {
 	m := &Master{
 		port:          port,
 		workerTaskMap: make(map[int64]TaskDescription),
@@ -227,6 +246,7 @@ func NewMaster(job *jobgraph.Job, port string, mapBucket, interBucket, reduceBuc
 		mapBucket:     mapBucket,
 		interBucket:   interBucket,
 		reduceBucket:  reduceBucket,
+		ck:            ck,
 	}
 
 	m.scheduler = Scheduler{
