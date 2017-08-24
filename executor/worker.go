@@ -103,7 +103,7 @@ func (w *Worker) Run() {
 			}
 		}()
 
-		w.executeTask(taskInfo)
+		err = w.executeTask(taskInfo)
 
 		retcode = kmrpb.ReportInfo_FINISH
 		if err != nil {
@@ -138,9 +138,9 @@ func (w *Worker) executeTask(task *kmrpb.TaskInfo) (err error) {
 	cw.BindCombiner(mapredNode.GetCombiner())
 	switch task.Phase {
 	case mapPhase:
-		w.runMapper(cw, mapredNode, task.SubIndex)
+		err = w.runMapper(cw, mapredNode, task.SubIndex)
 	case reducePhase:
-		w.runReducer(cw, mapredNode, task.SubIndex)
+		err = w.runReducer(cw, mapredNode, task.SubIndex)
 	default:
 		x, _ := json.Marshal(task)
 		err = errors.New(fmt.Sprint("Unkown task phase", x))
@@ -148,7 +148,7 @@ func (w *Worker) executeTask(task *kmrpb.TaskInfo) (err error) {
 	return err
 }
 
-func (w *Worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) {
+func (w *Worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) error {
 	readers := make([]records.RecordReader, 0)
 	interFiles := node.GetInterFileNameGenerator().GetReducerInputFiles(int(subIndex))
 	for _, interFile := range interFiles {
@@ -170,10 +170,11 @@ func (w *Worker) runReducer(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, 
 	if err := cw.DoReduce(readers, recordWriter); err != nil {
 		log.Fatalf("Fail to Reduce: %v", err)
 	}
-	recordWriter.Close()
+	err = recordWriter.Close()
+	return err
 }
 
-func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) {
+func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, subIndex int32) error {
 	// Inputs Files
 	inputFiles := node.GetInputFiles().GetFiles()
 	readers := make([]records.RecordReader, 0)
@@ -209,11 +210,24 @@ func (w *Worker) runMapper(cw *ComputeWrapClass, node *jobgraph.MapReduceNode, s
 
 	cw.DoMap(batchReader, writers, w.flushBucket, w.flushOutSize, node.GetIndex(), node.GetReducerNum(), w.workerID)
 
+	var err1, err2 error
 	//master should delete intermediate files
 	for _, reader := range readers {
-		reader.Close()
+		err1 = reader.Close()
+		if err1 != nil {
+			log.Error(err1)
+		}
 	}
 	for _, writer := range writers {
-		writer.Close()
+		err2 := writer.Close()
+		if err2 != nil {
+			log.Error(err2)
+		}
 	}
+
+	if err1 != nil || err2 != nil{
+		return errors.New(fmt.Sprint(err1, "\n", err2))
+	}
+
+	return nil
 }
