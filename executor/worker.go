@@ -74,17 +74,22 @@ func (w *Worker) Run() {
 	}
 	masterClient := kmrpb.NewMasterClient(cc)
 	for {
+		log.Info(w.hostName, "is requesting task...")
 		task, err := masterClient.RequestTask(context.Background(), &kmrpb.RegisterParams{
 			JobName:    w.job.GetName(),
 			WorkerID:   w.workerID,
 			WorkerName: w.hostName,
 		})
+
+
 		if err != nil || task.Retcode != 0 {
 			log.Error(err)
-			// TODO: random backoff
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Duration(rand.IntnRange(1, 3)) * time.Second)
 			continue
 		}
+
+		log.Info(w.hostName, "get a task", task)
+
 		taskInfo := task.Taskinfo
 		timer := time.NewTicker(master.HeartBeatTimeout / 3)
 		go func() {

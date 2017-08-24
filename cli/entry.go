@@ -100,6 +100,8 @@ func Run(job *jobgraph.Job) {
 	}
 	app.Before = func(c *cli.Context) error {
 		conf = config.LoadConfigFromMultiFiles(repMap, append(config.GetConfigLoadOrder(), c.StringSlice("config")...)...)
+		b, err := json.MarshalIndent(*conf, "", "\t")
+		log.Info("Config is :", string(b));
 		job.ValidateGraph()
 
 		assetFolder, err = filepath.Abs(c.String("asset-folder"))
