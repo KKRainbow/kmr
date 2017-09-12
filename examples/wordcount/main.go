@@ -1,17 +1,11 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
-	"strings"
 	"unicode"
 
-	"github.com/naturali/kmr/executor"
-	kmrpb "github.com/naturali/kmr/pb"
-)
-
-const (
-	MAX_WORD_LENGTH = 20
+	"github.com/naturali/kmr/jobgraph"
+	"github.com/naturali/kmr/mapred"
+	"github.com/naturali/kmr/cli"
 )
 
 func isAlphaOrNumber(r rune) bool {
@@ -47,63 +41,67 @@ func ProcessSingleSentence(line string) []string {
 	return outputs
 }
 
-func Map(kvs <-chan *kmrpb.KV) <-chan *kmrpb.KV {
-	out := make(chan *kmrpb.KV, 1024)
-	go func() {
-		b := make([]byte, 8)
-		for kv := range kvs {
-			for _, procceed := range ProcessSingleSentence(strings.Trim(string(kv.Value), "\n")) {
-				if len(procceed) > MAX_WORD_LENGTH {
-					continue
-				}
-				binary.LittleEndian.PutUint64(b, uint64(1))
-				out <- &kmrpb.KV{Key: []byte(procceed), Value: b}
-			}
-		}
-		close(out)
-	}()
-	return out
+type WordCountMapper struct {
+	mapred.MapperCommon
+	judgeFunc func(ch rune) bool
 }
 
-func Reduce(kvs <-chan *kmrpb.KV) <-chan *kmrpb.KV {
-	out := make(chan *kmrpb.KV, 1024)
-	go func() {
-		b := make([]byte, 8)
-		var key []byte
-		var count uint64
-		for kv := range kvs {
-			if !bytes.Equal(key, kv.Key) {
-				if key != nil {
-					binary.LittleEndian.PutUint64(b, count)
-					out <- &kmrpb.KV{Key: key, Value: b}
-				}
-				key = kv.Key
-				count = 0
-			}
-			count += binary.LittleEndian.Uint64(kv.Value)
-		}
-		if key != nil {
-			binary.LittleEndian.PutUint64(b, count)
-			out <- &kmrpb.KV{Key: key, Value: b}
-		}
-		close(out)
-	}()
-	return out
+// Map Value is lines from file. Map function split lines into words and emit (word, 1) pairs
+func (mapper *WordCountMapper) Map(key interface{}, value interface{}, output func(k, v interface{}), reporter interface{}) {
+	v, _ := value.(string)
+	words := ProcessSingleSentence(v)
+	for _, word := range words {
+		output(word, uint32(1))
+	}
 }
 
-func Combine(v1 []byte, v2 []byte) []byte {
-	var count uint64
-	count += binary.LittleEndian.Uint64(v1)
-	count += binary.LittleEndian.Uint64(v2)
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, count)
-	return b
+type WordCountReducer struct {
+	mapred.ReducerCommon
+}
+
+// Reduce key is word and valueNext is an iterator function. Add all values of one key togather to count the word occurs
+func (*WordCountReducer) Reduce(key interface{}, valuesNext mapred.ValueIterator, output func(v interface{}), reporter interface{}) {
+	var count uint32
+	mapred.ForEachValue(valuesNext, func(value interface{}) {
+		val, _ := value.(uint32)
+		count += val
+	})
+	output(count)
 }
 
 func main() {
-	cw := &executor.ComputeWrap{}
-	cw.BindMapper(Map)
-	cw.BindReducer(Reduce)
-	cw.BindCombiner(Combine)
-	cw.Run()
+	wcmap := &WordCountMapper{
+		MapperCommon: mapred.MapperCommon{
+			TypeConverters: mapred.TypeConverters{
+				InputKeyTypeConverter:    mapred.Bytes{},
+				InputValueTypeConverter:  mapred.String{},
+				OutputKeyTypeConverter:   mapred.String{},
+				OutputValueTypeConverter: mapred.Uint32{},
+			},
+		},
+	}
+	wcreduce := &WordCountReducer{
+		ReducerCommon: mapred.ReducerCommon{
+			TypeConverters: mapred.TypeConverters{
+				InputKeyTypeConverter:    mapred.Bytes{},
+				InputValueTypeConverter:  mapred.Uint32{},
+				OutputKeyTypeConverter:   mapred.Bytes{},
+				OutputValueTypeConverter: mapred.Uint32{},
+			},
+		},
+	}
+	var job jobgraph.Job
+	job.SetName("word-count")
+
+	inputs := &jobgraph.InputFiles{
+		// put a.t in the map bucket directory
+		Files: []string{"a.t"},
+		Type:  "textstream",
+	}
+
+	job.AddJobNode(inputs, "WordCount").
+		AddMapper(wcmap, 1).
+		AddReducer(wcreduce, 10)
+
+	cli.Run(&job)
 }
