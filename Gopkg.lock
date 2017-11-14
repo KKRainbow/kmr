@@ -28,8 +28,8 @@
 [[projects]]
   name = "github.com/aliyun/aliyun-oss-go-sdk"
   packages = ["oss"]
-  revision = "2d4691ac1af4fa0197178f31d8f9ca23798aa8e3"
-  version = "1.5.1"
+  revision = "6fe16293d6b7af4f5c2450714c5b4825c8ad040c"
+  version = "1.7.0"
 
 [[projects]]
   name = "github.com/asaskevich/govalidator"
@@ -160,8 +160,8 @@
 [[projects]]
   name = "github.com/imdario/mergo"
   packages = ["."]
-  revision = "3e95a51e0639b4cf372f2ccf74c86749d747fbdc"
-  version = "0.2.2"
+  revision = "7fe0c75c13abdee74b09fcacef5ea1c6bba6a874"
+  version = "0.2.4"
 
 [[projects]]
   branch = "master"
@@ -227,7 +227,7 @@
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
-  revision = "eb71ad9bd329b5ac0fd0148dd99bd62e8be8e035"
+  revision = "687d4b818545e443c8ba223cbef20b1721afd4db"
 
 [[projects]]
   branch = "master"
@@ -239,7 +239,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix","windows"]
-  revision = "07c182904dbd53199946ba614a412c61d3c548f5"
+  revision = "d4266bc12aae0b4128952c889b769442fce5d2f1"
 
 [[projects]]
   branch = "master"
@@ -292,6 +292,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "5537694b13709cb1c918a2d0c0637ea8ff41ed18f89412f73bcc290602490f8f"
+  inputs-digest = "a670782441bfba143a8229dfe6585c532eaf436e7d6a5c96589fd4605c0a51b1"
   solver-name = "gps-cdcl"
   solver-version = 1

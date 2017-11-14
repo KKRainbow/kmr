@@ -22,6 +22,7 @@ type Bucket interface {
 	OpenRead(key string) (ObjectReader, error)
 	OpenWrite(key string) (ObjectWriter, error)
 	Delete(key string) error
+	ListFiles() ([]string, error)
 }
 
 // NewBucket Bucket factory

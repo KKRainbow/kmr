@@ -1,11 +1,10 @@
 package bucket
 
 import (
-"bufio"
-"bytes"
-"io"
+	"bytes"
+	"io"
 
-"github.com/aliyun/aliyun-oss-go-sdk/oss"
+	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 )
 
 // AliBlobBucket use azure blob
@@ -29,21 +28,25 @@ func (reader *AliBlobObjectReader) Read(p []byte) (int, error) {
 
 type AliBlobObjectWriter struct {
 	ObjectWriter
-	bucket       *oss.Bucket
-	name         string
-	buffer       *bytes.Buffer
-	bufferWriter *bufio.Writer
+	bucket  *oss.Bucket
+	name    string
+	content []byte
 }
 
 func (writer *AliBlobObjectWriter) Close() error {
-	if err := writer.bufferWriter.Flush(); err != nil {
-		return err
+	var err error
+	for retry := 0; retry < 3; retry++ {
+		err = writer.bucket.PutObject(writer.name, bytes.NewReader(writer.content))
+		if err == nil {
+			break
+		}
 	}
-	return writer.bucket.PutObject(writer.name, bytes.NewReader(writer.buffer.Bytes()))
+	return err
 }
 
 func (writer *AliBlobObjectWriter) Write(data []byte) (int, error) {
-	return writer.bufferWriter.Write(data)
+	writer.content = append(writer.content, data...)
+	return len(data), nil
 }
 
 // NewAliBlobBucket new ali blob bucket
@@ -73,12 +76,10 @@ func (bk *AliBlobBucket) OpenRead(name string) (ObjectReader, error) {
 }
 
 func (bk *AliBlobBucket) OpenWrite(name string) (ObjectWriter, error) {
-	var b bytes.Buffer
 	return &AliBlobObjectWriter{
-		bucket:       bk.bucket,
-		name:         name,
-		bufferWriter: bufio.NewWriter(&b),
-		buffer:       &b,
+		bucket:  bk.bucket,
+		name:    name,
+		content: make([]byte, 0),
 	}, nil
 }
 
@@ -87,13 +88,21 @@ func (bk *AliBlobBucket) Delete(key string) error {
 }
 
 func (bk *AliBlobBucket) ListFiles() ([]string, error) {
-	lsRes, err := bk.bucket.ListObjects()
-	if err != nil {
-		return nil, err
-	}
 	res := make([]string, 0)
-	for _, o := range lsRes.Objects {
-		res = append(res, o.Key)
+
+	marker := oss.Marker("")
+	for {
+		lor, err := bk.bucket.ListObjects(oss.MaxKeys(10), marker)
+		if err != nil {
+			panic(err)
+		}
+		for _, o := range lor.Objects {
+			res = append(res, o.Key)
+		}
+		marker = oss.Marker(lor.NextMarker)
+		if !lor.IsTruncated {
+			break
+		}
 	}
 	return res, nil
 }
