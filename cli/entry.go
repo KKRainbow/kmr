@@ -60,6 +60,15 @@ func loadBucketsFromLocal(conf *config.LocalConfig) ([]bucket.Bucket, error) {
 	return buckets, err
 }
 
+// If we are in a docker container or in local
+func IsInContainer() {
+    if f, err := os.Stat("/.dockerenv"); os.IsNotExist(err) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
 func Run(job *jobgraph.Job) {
 	if len(job.GetName()) == 0 {
 		job.SetName("anonymous-kmr-job")
