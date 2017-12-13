@@ -75,6 +75,15 @@ func IsInContainer() bool {
     }
 }
 
+// If we are in a docker container or in local
+func IsInContainer() bool {
+    if _, err := os.Stat("/.dockerenv"); os.IsNotExist(err) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
 func Run(job *jobgraph.Job) {
 	log.Debug("Call user defined argument handler")
 	flag := false
