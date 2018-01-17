@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"time"
+	"errors"
 
 	"github.com/naturali/kmr/bucket"
 	"github.com/naturali/kmr/jobgraph"
@@ -13,7 +14,6 @@ import (
 
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/rand"
-	"errors"
 )
 
 // XXX this should be unified with master.map/reducePhase

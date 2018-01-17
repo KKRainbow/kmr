@@ -2,12 +2,12 @@ package main
 
 import (
 	"unicode"
+	"io"
+	"fmt"
 
 	"github.com/naturali/kmr/cli"
 	"github.com/naturali/kmr/jobgraph"
 	"github.com/naturali/kmr/mapred"
-	"io"
-	"fmt"
 )
 
 const (
