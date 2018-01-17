@@ -96,6 +96,16 @@ func (j *Job) ValidateGraph() {
 			log.Fatal("Duplicate job name", node.name)
 		}
 		jobNodeNameMap[node.name] = true
+		// check startNode and endNod pointer is correct
+		var startFromEnd, endFromStart TaskNode
+		for startFromEnd = node.endNode; startFromEnd.GetPrev() != nil; startFromEnd = startFromEnd.GetPrev() {}
+		for endFromStart = node.startNode; endFromStart.GetNext() != nil; endFromStart = endFromStart.GetNext() {}
+		if startFromEnd != node.startNode {
+			log.Fatalf("%v walk from end to start. start does not equal to node.startNode", node.name)
+		}
+		if endFromStart != node.endNode {
+			log.Fatalf("%v walk from start to end. end does not equal to node.endNode", node.name)
+		}
 		// Check whether map/reduce chain is correct
 		for startNode := node.startNode; startNode != nil; startNode = startNode.GetNext() {
 			mapredNodeCount++
@@ -109,7 +119,7 @@ func (j *Job) ValidateGraph() {
 				log.Fatalf("%v-%v input file length is 0", node.name, startNode.GetIndex())
 			}
 			if len(startNode.GetOutputFiles().GetFiles()) == 0 {
-				log.Fatalf("%v-%v output file length is 0", node.name, startNode.GetIndex())
+				log.Fatalf("%v-v output file length is 0", node.name, startNode.GetIndex())
 			}
 			if startNode.GetPrev() != nil && startNode.GetInputFiles() != startNode.GetPrev().GetOutputFiles() {
 				log.Fatalf("%v-%v input files doesn't equal to prev node output files", node.name, startNode.GetIndex())

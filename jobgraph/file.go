@@ -59,13 +59,13 @@ func (i *InterFileNameGenerator) GetReducerInputFiles(reducerIdx int) []string {
 }
 
 const (
-	MapBucket = iota
+	MapBucket    = iota
 	ReduceBucket
 	InterBucket
 )
 
 type fileNameGenerator struct {
-	taskNode     TaskNode
+	taskNode   TaskNode
 	fileCount  int
 	bucketType int
 }
@@ -92,8 +92,10 @@ func (f *fileNameGenerator) setBucketType(t int) {
 
 // InputFiles Define input files
 type InputFiles struct {
-	Files []string
-	Type  string
+	Files      []string
+	Type       string
+	// Default: MapBucket
+	BucketType int
 }
 
 func (f *InputFiles) GetFiles() []string {
@@ -105,9 +107,9 @@ func (f *InputFiles) GetType() string {
 }
 
 func (f *InputFiles) GetBucketType() int {
-	return MapBucket
+	return f.BucketType
 }
 
-func (f *InputFiles) setBucketType() {
+func (f *InputFiles) setBucketType(int) {
 	log.Panic("InputFiles doesn't have setBucketType api")
 }

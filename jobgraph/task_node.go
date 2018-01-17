@@ -196,8 +196,8 @@ func (n *JobNode) AddMapper(mapper mapred.Mapper, batchSize int) *JobNode {
 					jobNode:    n,
 					inputFiles: n.inputs,
 				},
-				mapper:          nil,
-				mapperBatchSize: 0,
+				mapper:          mapper,
+				mapperBatchSize: batchSize,
 			}
 			mrnode.outputFiles = &fileNameGenerator{mrnode, 0, ReduceBucket}
 			n.startNode = mrnode
@@ -266,7 +266,10 @@ func (n *FilterNode) GetBatchSize() int {
 
 func (n *FilterNode) Validate() {
 	if n.filter == nil {
-		log.Error("Filter Node don't have a filter function")
+		log.Fatal("Filter Node doesn't have a filter function")
+	}
+	if n.batchSize <= 0 {
+		log.Fatal("Filter Node's batchSize is negative", n.batchSize)
 	}
 }
 
@@ -278,14 +281,17 @@ func (n *FilterNode) GetTaskCountOfPhase(phase int) int {
 	return (inputLen + n.batchSize - 1) / n.batchSize
 }
 
-func (n *JobNode) AddFilter(filter mapred.Filter) *JobNode {
+func (n *JobNode) AddFilter(filter mapred.Filter, batchSize int) *JobNode {
 	fn := &FilterNode{
 		TaskNodeBase: TaskNodeBase{
 			index:     n.graph.taskNodeIndex,
 			jobNode:   n,
 			chainPrev: n.endNode,
 		},
+		batchSize: batchSize,
+		filter:    filter,
 	}
+	n.graph.taskNodeIndex++
 	if n.startNode == nil {
 		fn.inputFiles = n.inputs
 		n.startNode = fn
@@ -293,7 +299,9 @@ func (n *JobNode) AddFilter(filter mapred.Filter) *JobNode {
 		fn.inputFiles = n.endNode.GetOutputFiles()
 		fn.inputFiles.setBucketType(InterBucket)
 		fn.setPrev(n.endNode)
+		n.endNode.setNext(fn)
 	}
+	n.graph.taskNodes = append(n.graph.taskNodes, fn)
 	fn.outputFiles = &fileNameGenerator{fn, len(fn.inputFiles.GetFiles()), ReduceBucket}
 	n.endNode = fn
 	return n
@@ -302,7 +310,7 @@ func (n *JobNode) AddFilter(filter mapred.Filter) *JobNode {
 type BashNode struct {
 	TaskNodeBase
 	batchSize int
-	run mapred.BashCommand
+	run       mapred.BashCommand
 }
 
 func (n *BashNode) GetNodeType() int {

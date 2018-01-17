@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/rand"
-	"github.com/naturali/kmr/worker"
+	"errors"
 )
 
 // XXX this should be unified with master.map/reducePhase
@@ -46,7 +46,6 @@ func (b *ExecutorBase) getBucket(files jobgraph.Files) bucket.Bucket {
 	return nil
 }
 
-
 type Executor interface {
 	setWorker(*Worker)
 	getWorker() *Worker
@@ -63,23 +62,31 @@ type Worker struct {
 	mapBucket,
 	interBucket,
 	reduceBucket,
-	flushBucket	bucket.Bucket
+	flushBucket bucket.Bucket
 }
 
 // NewWorker create a worker
 func NewWorker(job *jobgraph.Job, workerID int64, masterAddr string, flushOutSize int, mapBucket, interBucket, reduceBucket, flushBucket bucket.Bucket) *Worker {
-	execs := make([]Executor, 0)
-	execs = append(execs, NewMapReduceExecutor(flushOutSize))
-	w := Worker{
-		job:        job,
-		masterAddr: masterAddr,
-		workerID:   workerID,
-		executors:  execs,
+	w := &Worker{
+		job:          job,
+		masterAddr:   masterAddr,
+		workerID:     workerID,
+		mapBucket:    mapBucket,
+		reduceBucket: reduceBucket,
+		flushBucket:  flushBucket,
+		interBucket:  interBucket,
 	}
+	mrExec := NewMapReduceExecutor(flushOutSize)
+	mrExec.setWorker(w)
+	fExec := NewFilterExecutor()
+	fExec.setWorker(w)
+	execs := make([]Executor, 0)
+	execs = append(execs, mrExec, fExec)
+	w.executors = execs
 	if hn, err := os.Hostname(); err == nil {
 		w.hostName = hn
 	}
-	return &w
+	return w
 }
 
 func (w *Worker) Run() {
@@ -145,14 +152,13 @@ func (w *Worker) Run() {
 		taskNode := w.job.GetTaskNode(taskInfo.JobNodeName, int(taskInfo.MapredNodeIndex))
 		for _, exec := range w.executors {
 			if exec.isTargetFor(taskNode) {
-				exec.handleTaskNode(*task.GetTaskinfo(), taskNode)
+				err = exec.handleTaskNode(*task.GetTaskinfo(), taskNode)
 				targetExecutor = exec
 			}
 		}
 
 		if targetExecutor == nil {
-			log.Error("Cannot find executor for this kind of task node")
-			retcode = kmrpb.ReportInfo_ERROR
+			err = errors.New("cannot find executor for this kind of task node")
 		}
 
 		retcode = kmrpb.ReportInfo_FINISH

@@ -3,6 +3,20 @@ import (
 	"io"
 )
 
+type InputTypeKeyConverters struct {
+	InputKeyTypeConverter    TypeConverter
+	InputValueTypeConverter  TypeConverter
+}
+
+func (tb *InputTypeKeyConverters) GetInputKeyTypeConverter() TypeConverter {
+	return tb.InputKeyTypeConverter
+}
+
+// GetInputValueTypeConverter get input value type converter
+func (tb *InputTypeKeyConverters) GetInputValueTypeConverter() TypeConverter {
+	return tb.InputValueTypeConverter
+}
+
 type Filter interface {
 	InputTypeConverter
 	Filter(k, v interface{}, writer io.Writer)
@@ -11,8 +25,7 @@ type Filter interface {
 }
 
 type FilterCommon struct {
-	InputKeyTypeConverter    TypeConverter
-	InputValueTypeConverter  TypeConverter
+	InputTypeKeyConverters
 }
 
 func (*FilterCommon) Init() {}
@@ -26,8 +39,7 @@ type BashCommand interface {
 }
 
 type BashCommandBase struct {
-	InputKeyTypeConverter    TypeConverter
-	InputValueTypeConverter  TypeConverter
+	InputTypeKeyConverters
 }
 
 func (*BashCommandBase) Init() {}

@@ -149,7 +149,7 @@ func (m *Master) CheckHeartbeatForEachWorker(workerID int64, heartbeat chan hear
 			// the worker is doing his job
 			switch hb.heartBeatCode {
 			case HeartBeatCodeDead:
-				log.Error("Worker: ", workerID, "fuck up")
+				log.Error("Worker: ", workerID, "report task error", hb.task)
 				m.scheduler.ReportTask(hb.task, ResultFailed)
 				return
 			case HeartBeatCodeFinished:

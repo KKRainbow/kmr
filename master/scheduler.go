@@ -297,12 +297,12 @@ func (s *Scheduler) StartSchedule(visitor EventHandler) error {
 		reportJobChan <- reportJobInput{desc, result}
 	}
 
-	go s.MapReduceNodeSchedule(pushJobFunc, visitor)
+	go s.taskNodeSchedule(pushJobFunc, visitor)
 	return nil
 }
 
 // MapReduceNodeSchedule Schedule in granularity of TaskNode
-func (s *Scheduler) MapReduceNodeSchedule(pushJobFunc PushJobFunction, eventHandler EventHandler) {
+func (s *Scheduler) taskNodeSchedule(pushJobFunc PushJobFunction, eventHandler EventHandler) {
 
 	waitForAll := &sync.WaitGroup{}
 	jobStatusMap := make(map[*jobgraph.JobNode]int)
