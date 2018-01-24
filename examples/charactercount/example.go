@@ -35,8 +35,9 @@ type outputText struct {
 	mapred.FilterCommon
 }
 
-func (*outputText) Filter(k, v interface{}, output io.Writer) {
-	output.Write([]byte(fmt.Sprintln(k, v)))
+func (*outputText) Filter(k, v interface{}, output io.Writer) error {
+	_, err := output.Write([]byte(fmt.Sprintln(k, v)))
+	return err
 }
 
 // Map Value is lines from file. Map function split lines into words and emit (word, 1) pairs

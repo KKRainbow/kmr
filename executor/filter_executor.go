@@ -26,6 +26,7 @@ func (e *FilterExecutor) isTargetFor(n jobgraph.TaskNode) bool {
 	_, ok := n.(*jobgraph.FilterNode)
 	return ok
 }
+
 func (e *FilterExecutor) handleTaskNode(info kmrpb.TaskInfo, n jobgraph.TaskNode) (err error) {
 	fNode, _ := n.(*jobgraph.FilterNode)
 	if fNode == nil {
@@ -98,7 +99,9 @@ func (e *FilterExecutor) doFilter(rr records.RecordReader, writer io.Writer, wor
 		for kvpair := range inputKV {
 			key := keyClass.FromBytes(kvpair.Key)
 			value := valueClass.FromBytes(kvpair.Value)
-			filter.Filter(key, value, writer)
+			if err := filter.Filter(key, value, writer); err != nil {
+				log.Fatal("Do filter error", err)
+			}
 		}
 		close(waitc)
 	}()
@@ -107,6 +110,8 @@ func (e *FilterExecutor) doFilter(rr records.RecordReader, writer io.Writer, wor
 	}
 	close(inputKV)
 	<-waitc
+
+	filter.After()
 
 	log.Debug("DONE Filter. Took:", time.Since(startTime))
 	return

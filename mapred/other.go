@@ -19,7 +19,7 @@ func (tb *InputTypeKeyConverters) GetInputValueTypeConverter() TypeConverter {
 
 type Filter interface {
 	InputTypeConverter
-	Filter(k, v interface{}, writer io.Writer)
+	Filter(k, v interface{}, writer io.Writer) error
 	Init()
 	After()
 }
